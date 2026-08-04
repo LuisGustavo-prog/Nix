@@ -1,7 +1,7 @@
 import re
 import json
 import asyncio
-from groq import Groq, BadRequestError
+from groq import AsyncGroq, BadRequestError
 from app.actions.browser import search_in_browser
 from app.config import settings
 from app.actions.apps import open_app, close_app
@@ -13,7 +13,7 @@ from app.actions.youtube import search_video_on_youtube
 from app.actions.composite import start_work_mode
 from app.core.logging_config import get_command_logger
 
-client = Groq(api_key=settings.GROQ_API_KEY)
+client = AsyncGroq(api_key=settings.GROQ_API_KEY)
 
 MODEL = "llama-3.3-70b-versatile"
 _CORRECTION_MODEL = "llama-3.1-8b-instant"
@@ -377,9 +377,9 @@ _CORRECTION_SYSTEM_PROMPT = (
     "nova. Responda só com a frase corrigida, sem aspas, sem explicações."
 )
 
-def _correct_transcription(user_text: str) -> str:
+async def _correct_transcription(user_text: str) -> str:
     try:
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=_CORRECTION_MODEL,
             messages=[
                 {"role": "system", "content": _CORRECTION_SYSTEM_PROMPT},
@@ -426,14 +426,14 @@ _SYSTEM_PROMPT = (
     "em texto, breve."
 )
 
-def _call_groq_with_tools(user_text: str):
+async def _call_groq_with_tools(user_text: str):
     max_attempts = 3
     last_error = None
     selected_tools = _select_tools(user_text)
 
     for attempt in range(max_attempts):
         try:
-            response = client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=MODEL,
                 messages=[
                     {"role": "system", "content": _SYSTEM_PROMPT},
@@ -491,7 +491,7 @@ async def process_command(user_text: str) -> str:
     quick_match = _match_simple_command(user_text)
 
     if quick_match is None:
-        corrected_text = _correct_transcription(user_text)
+        corrected_text = await _correct_transcription(user_text)
         if corrected_text.strip().lower() != user_text.strip().lower():
             user_text = corrected_text
             quick_match = _match_simple_command(user_text)
@@ -505,7 +505,7 @@ async def process_command(user_text: str) -> str:
             return response_text
 
     try:
-        response = _call_groq_with_tools(user_text)
+        response = await _call_groq_with_tools(user_text)
     except BadRequestError as e:
         fallback = _try_parse_broken_tool_call(str(e))
         if fallback:

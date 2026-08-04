@@ -23,7 +23,6 @@ def _ensure_models_downloaded(model_name: str) -> None:
         print(f"Modelo '{model_name}' não encontrado. Baixando automaticamente...")
         openwakeword.utils.download_models()
         print("Download concluído.")
-
 class WakeWordDetector:
     def __init__(self, model_name: str = WAKE_WORD_MODEL, threshold: float = DETECTION_THRESHOLD):
         _ensure_models_downloaded(model_name)

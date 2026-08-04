@@ -342,6 +342,9 @@ def _match_simple_command(user_text: str):
     if any(phrase in text for phrase in ["bora trabalhar", "vamos trabalhar", "hora de trabalhar"]):
         return "start_work_mode", {}
 
+    if any(phrase in text for phrase in ["quero desenhar", "vou desenhar", "bora desenhar"]):
+        return "open_app", {"app_name": "paint"}
+
     match = _YOUTUBE_PATTERN.search(text)
     if match:
         query = _strip_trailing_filler(match.group(1))

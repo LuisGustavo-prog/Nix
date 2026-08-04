@@ -17,6 +17,19 @@ KNOWN_APP_DIRS = {
 def _normalize(name: str) -> str:
     return name.strip().lower().replace(" ", "")
 
+def _fuzzy_lookup(app_name: str, alias_map: dict[str, str], cutoff: float = 0.75) -> str | None:
+    normalized_input = _normalize(app_name)
+    normalized_map = {_normalize(key): value for key, value in alias_map.items()}
+
+    if normalized_input in normalized_map:
+        return normalized_map[normalized_input]
+
+    matches = get_close_matches(normalized_input, normalized_map.keys(), n=1, cutoff=cutoff)
+    if matches:
+        return normalized_map[matches[0]]
+
+    return None
+
 def _find_in_app_paths_registry(exe_name: str) -> str | None:
     if not exe_name.endswith(".exe"):
         exe_name += ".exe"
@@ -105,17 +118,39 @@ def _launch(path: str) -> None:
     else:
         subprocess.Popen(path)
 
+_SETTINGS_URI_APPS = {
+    "configurações": "ms-settings:",
+    "configuração": "ms-settings:",
+    "configuracoes": "ms-settings:",
+    "configuracao": "ms-settings:",
+    "settings": "ms-settings:",
+}
+
 def open_app(app_name: str) -> str:
+    matched_uri = _fuzzy_lookup(app_name, _SETTINGS_URI_APPS)
+    if matched_uri:
+        os.startfile(matched_uri)
+        return f"Abrindo {app_name}."
+
     system_apps = {
         "bloco de notas": "notepad",
         "notepad": "notepad",
         "calculadora": "calc",
         "paint": "mspaint",
+        "gerenciador de tarefas": "taskmgr",
+        "taskmgr": "taskmgr",
+        "prompt de comando": "cmd",
+        "cmd": "cmd",
+        "powershell": "powershell",
+        "editor de registro": "regedit",
+        "regedit": "regedit",
+        "painel de controle": "control",
+        "explorador de arquivos": "explorer",
     }
 
-    key = app_name.strip().lower()
-    if key in system_apps:
-        subprocess.Popen(system_apps[key])
+    matched_command = _fuzzy_lookup(app_name, system_apps)
+    if matched_command:
+        subprocess.Popen(matched_command)
         return f"Abrindo {app_name}."
 
     path = resolve_app_path(app_name)
@@ -135,11 +170,21 @@ _CLOSE_APP_ALIASES = {
     "calculadora": "calculatorapp.exe",
     "calc": "calculatorapp.exe",
     "paint": "mspaint.exe",
+    "gerenciador de tarefas": "taskmgr.exe",
+    "taskmgr": "taskmgr.exe",
+    "prompt de comando": "cmd.exe",
+    "cmd": "cmd.exe",
+    "powershell": "powershell.exe",
+    "editor de registro": "regedit.exe",
+    "regedit": "regedit.exe",
+    "configurações": "systemsettings.exe",
+    "configuração": "systemsettings.exe",
+    "configuracoes": "systemsettings.exe",
+    "configuracao": "systemsettings.exe",
 }
 
 def close_app(app_name: str) -> str:
-    key = app_name.strip().lower()
-    target = _CLOSE_APP_ALIASES.get(key, key)
+    target = _fuzzy_lookup(app_name, _CLOSE_APP_ALIASES) or app_name.strip().lower()
     closed_any = False
 
     try:

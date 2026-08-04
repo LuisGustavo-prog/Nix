@@ -13,22 +13,15 @@ def _resolve_shortcut_target(lnk_path: str) -> str:
     shortcut = shell.CreateShortCut(lnk_path)
     return shortcut.Targetpath
 
-def _search_video_id(query: str, prefer_music: bool = True) -> str | None:
+def _search_video_id(query: str) -> str | None:
     params = {
         "part": "snippet",
         "q": query,
         "key": settings.YOUTUBE_API_KEY,
         "maxResults": 1,
         "type": "video",
+        "videoCategoryId": _MUSIC_CATEGORY_ID,
     }
-
-    if prefer_music:
-        music_params = {**params, "videoCategoryId": _MUSIC_CATEGORY_ID}
-        response = requests.get(_SEARCH_ENDPOINT, params=music_params, timeout=5)
-        response.raise_for_status()
-        items = response.json().get("items", [])
-        if items:
-            return items[0]["id"]["videoId"]
 
     response = requests.get(_SEARCH_ENDPOINT, params=params, timeout=5)
     response.raise_for_status()
@@ -51,7 +44,7 @@ def search_video_on_youtube(query: str) -> str:
         return "Não consegui me conectar ao YouTube agora."
 
     if video_id is None:
-        return f"Não encontrei nenhum vídeo para {query}."
+        return f"Não encontrei nenhuma música para {query}."
 
     opera_path = resolve_app_path("opera")
     if opera_path is None:

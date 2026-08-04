@@ -11,11 +11,20 @@ from app.actions.media_control import play_pause, next_track, previous_track, st
 from app.actions.dictation import dictate_text
 from app.actions.youtube import search_video_on_youtube
 from app.actions.composite import start_work_mode
+from app.core.logging_config import get_command_logger
 
 client = Groq(api_key=settings.GROQ_API_KEY)
 
 MODEL = "llama-3.3-70b-versatile"
-_CORRECTION_MODEL = "llama-3.1-8b-instant"  
+_CORRECTION_MODEL = "llama-3.1-8b-instant"
+
+cmd_log = get_command_logger()
+
+def _log_command(heard_text: str, tier: str, action_desc: str, response: str) -> None:
+    cmd_log.info(
+        "OUVIDO: '%s' | TIER: %s | AÇÃO: %s | RESPOSTA: '%s'",
+        heard_text, tier, action_desc, response,
+    )
 
 def control_media(action: str) -> str:
     dispatch = {
@@ -229,19 +238,23 @@ _TOOLS = [
         "function": {
             "name": "search_video_on_youtube",
             "description": (
-                "Busca um vídeo no YouTube e abre o primeiro resultado, "
-                "priorizando música quando fizer sentido. Use tanto pra "
-                "vídeos comuns ('procura um vídeo sobre programação no "
-                "YouTube') quanto pra tocar música, já que não há Spotify "
-                "integrado ('toca [música/artista]', 'coloca [música] pra "
-                "tocar', 'toca [música] no YouTube')."
+                "Busca uma MÚSICA no YouTube Music e toca o primeiro "
+                "resultado. SÓ use esta ferramenta se o usuário mencionar "
+                "explicitamente a palavra 'YouTube' no comando, ex: 'toca "
+                "[música] no YouTube', 'coloca [música] no YouTube', "
+                "'pesquisa [música] no YouTube'. Se o usuário disser só "
+                "'toca [música]' ou 'coloca [música] pra tocar', SEM "
+                "mencionar YouTube, NÃO chame esta ferramenta, ela vai "
+                "ficar ambígua com controle de mídia. NÃO use para vídeos "
+                "que não sejam música (tutoriais, notícias, vlogs etc.), o "
+                "Nix não busca esse tipo de conteúdo."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Termo, música/artista ou assunto do vídeo buscado.",
+                        "description": "Nome da música e/ou artista a ser tocado.",
                     }
                 },
                 "required": ["query"],
@@ -265,6 +278,30 @@ _TOOLS = [
         },
     }
 ]
+
+_YOUTUBE_PATTERN = re.compile(
+    r"\b(?:toca|tocar|coloca|colocar|abre|abrir|pesquisa|pesquisar|busca|buscar)\s+"
+    r"(?:a\s+m[uú]sica\s+|o\s+v[íi]deo\s+(?:de|da|do)\s+|o\s+v[íi]deo\s+)?"
+    r"(.+?)\s+no\s+youtube\b",
+    re.IGNORECASE,
+)
+_BROWSER_PATTERN = re.compile(
+    r"\b(?:pesquisa|pesquisar|busca|buscar)\s+(?:sobre\s+|por\s+)?"
+    r"(.+?)\s+no\s+(?:navegador|opera)\b",
+    re.IGNORECASE,
+)
+_OPEN_APP_PATTERN = re.compile(r"\b(?:abre|abrir|abra)\s+(?:(?:o|a)\s+)?(.+)", re.IGNORECASE)
+_CLOSE_APP_PATTERN = re.compile(r"\b(?:fecha|fechar|feche)\s+(?:(?:o|a)\s+)?(.+)", re.IGNORECASE)
+
+_TRAILING_FILLER_WORDS = ("por favor", "pra mim", "para mim")
+
+
+def _strip_trailing_filler(value: str) -> str:
+    cleaned = value.strip(" .,!?")
+    for filler in _TRAILING_FILLER_WORDS:
+        if cleaned.lower().endswith(filler):
+            cleaned = cleaned[: -len(filler)].strip(" .,!?")
+    return cleaned
 
 def _match_simple_command(user_text: str):
     text = user_text.lower()
@@ -290,20 +327,44 @@ def _match_simple_command(user_text: str):
     if "luz noturna" in text or "night light" in text:
         return "toggle_night_light", {}
 
-    if re.search(r"\b(pausa|pause)\b", text) or "dá play" in text or "da play" in text:
+    if re.search(r"\b(pausa|pause|despausa|despause|continua|continue|retoma|retomar)\b", text) or "dá play" in text or "da play" in text:
         return "control_media", {"action": "play_pause"}
     if re.search(r"\b(pr[oó]xima|pula|pular)\b", text):
         return "control_media", {"action": "next_track"}
-    if "anterior" in text or ("volta" in text and any(w in text for w in ["música", "musica", "faixa"])):
+    if re.search(r"\b(anterior|volt[ae]|voltar)\b", text):
         return "control_media", {"action": "previous_track"}
-    if re.search(r"para(r)? a (m[uú]sica)", text):
+    if re.search(r"\b(para|pare|parar)\s+a\s+(m[uú]sica)\b", text):
         return "control_media", {"action": "stop"}
 
-    if "modo de escrita" in text or "modo de digitação" in text:
+    if any(phrase in text for phrase in ["modo de escrita", "modo de digitação", "modo de ditado"]) or re.search(r"\b(escreve|escrever|digita|ditar)\b", text):
         return "dictate_text", {}
 
     if any(phrase in text for phrase in ["bora trabalhar", "vamos trabalhar", "hora de trabalhar"]):
         return "start_work_mode", {}
+
+    match = _YOUTUBE_PATTERN.search(text)
+    if match:
+        query = _strip_trailing_filler(match.group(1))
+        if query:
+            return "search_video_on_youtube", {"query": query}
+
+    match = _BROWSER_PATTERN.search(text)
+    if match:
+        query = _strip_trailing_filler(match.group(1))
+        if query:
+            return "search_in_browser", {"query": query}
+
+    match = _CLOSE_APP_PATTERN.search(text)
+    if match:
+        app_name = _strip_trailing_filler(match.group(1))
+        if app_name:
+            return "close_app", {"app_name": app_name}
+
+    match = _OPEN_APP_PATTERN.search(text)
+    if match:
+        app_name = _strip_trailing_filler(match.group(1))
+        if app_name:
+            return "open_app", {"app_name": app_name}
 
     return None
 
@@ -335,10 +396,10 @@ _CATEGORY_RULES = [
     (["volume", "som", "mudo", "muta", "desmuta", "áudio", "audio"], ["set_volume", "adjust_volume", "mute"]),
     (["luz noturna", "night light"], ["toggle_night_light"]),
     (
-        ["pausa", "pause", "toca", "tocar", "próxima", "proxima", "anterior", "continua", "retoma", "play", "stop", "para a música", "para a musica"],
-        ["control_media", "search_video_on_youtube"],
+        ["pausa", "pause", "despausa", "próxima", "proxima", "volta", "volte", "anterior", "continua", "retoma", "play", "stop", "para a música", "para a musica", "pare a música", "pare a musica"],
+        ["control_media"],
     ),
-    (["youtube"], ["search_video_on_youtube"]),
+    (["youtube"], ["search_video_on_youtube", "control_media"]),
     (["navegador", "opera"], ["search_in_browser"]),
     (["modo de escrita", "ditado", "escreve", "escrever", "digita"], ["dictate_text"]),
 ]
@@ -436,7 +497,9 @@ async def process_command(user_text: str) -> str:
         function_name, function_args = quick_match
         function_to_call = _AVAILABLE_FUNCTIONS.get(function_name)
         if function_to_call:
-            return await _execute_function(function_to_call, function_args)
+            response_text = await _execute_function(function_to_call, function_args)
+            _log_command(user_text, "TIER_0_QUICK_MATCH", f"{function_name}({function_args})", response_text)
+            return response_text
 
     try:
         response = _call_groq_with_tools(user_text)
@@ -446,8 +509,11 @@ async def process_command(user_text: str) -> str:
             function_name, function_args = fallback
             function_to_call = _AVAILABLE_FUNCTIONS.get(function_name)
             if function_to_call:
-                return await _execute_function(function_to_call, function_args)
+                response_text = await _execute_function(function_to_call, function_args)
+                _log_command(user_text, "TIER_1_FALLBACK_PARSE", f"{function_name}({function_args})", response_text)
+                return response_text
 
+        _log_command(user_text, "TIER_1_FALLBACK_FAILED", "nenhuma", "Desculpa, não consegui processar esse comando. Pode repetir?")
         return "Desculpa, não consegui processar esse comando. Pode repetir?"
 
     message = response.choices[0].message
@@ -461,12 +527,17 @@ async def process_command(user_text: str) -> str:
 
             function_to_call = _AVAILABLE_FUNCTIONS.get(function_name)
             if function_to_call is None:
-                results.append(f"Não sei executar a ação {function_name}.")
+                error_msg = f"Não sei executar a ação {function_name}."
+                results.append(error_msg)
+                _log_command(user_text, "TIER_1_UNKNOWN_TOOL", function_name, error_msg)
                 continue
 
             result = await _execute_function(function_to_call, function_args)
             results.append(result)
+            _log_command(user_text, "TIER_1_TOOL_CALL", f"{function_name}({function_args})", result)
 
         return " ".join(results)
 
-    return message.content or "Não entendi o comando."
+    final_response = message.content or "Não entendi o comando."
+    _log_command(user_text, "TIER_1_TEXT_ONLY", "nenhuma", final_response)
+    return final_response

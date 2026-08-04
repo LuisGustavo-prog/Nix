@@ -7,6 +7,7 @@ from app.core.tts import speak_async
 from app.core.stt import listen
 from app.core.intent import process_command
 from app.core.wake_word import WakeWordDetector
+from app.core.logging_config import setup_logging, setup_command_logger, get_logger
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ENV_PATH = BASE_DIR / ".env"
@@ -17,6 +18,11 @@ _GREETINGS = [
     "Fala, {username}! Pode chamar quando quiser.",
     "Pronto, {username}. É só me chamar.",
 ]
+
+_MIN_SECONDS_BETWEEN_RESTARTS = 5
+_MAX_RESTART_BACKOFF = 60
+
+log = get_logger("main")
 
 def _random_greeting(username: str) -> str:
     return random.choice(_GREETINGS).format(username=username)
@@ -42,23 +48,42 @@ def _is_negative(text: str) -> bool:
     text = text.lower()
     return any(word in text for word in ["não", "nao", "errado", "incorreto"])
 
+async def _safe_speak(text: str) -> None:
+    try:
+        await speak_async(text)
+    except Exception:
+        log.exception("Falha ao gerar/tocar TTS para o texto: %r", text)
+
+def _safe_listen(duration: int = 3, use_command_context: bool = False) -> str:
+    try:
+        return listen(duration=duration, use_command_context=use_command_context)
+        # return listen(use_command_context=use_command_context)
+    except Exception:
+        log.exception("Falha ao capturar/transcrever áudio")
+        return ""
+
 async def _capture_confirmed_name(max_attempts: int = 3) -> str:
-    await speak_async("Oi! Ainda não te conheço. Qual é o seu nome?")
+    await _safe_speak("Oi! Ainda não te conheço. Qual é o seu nome?")
 
+    raw_name = ""
     for attempt in range(max_attempts):
-        raw_name = listen()
+        raw_name = _safe_listen()
 
-        await speak_async(f"Entendi {raw_name}. Está correto?")
-        confirmation = listen()
+        if not raw_name:
+            await _safe_speak("Não consegui te ouvir, pode repetir?")
+            continue
+
+        await _safe_speak(f"Entendi {raw_name}. Está correto?")
+        confirmation = _safe_listen()
 
         if not _is_negative(confirmation):
             return raw_name
 
         if attempt < max_attempts - 1:
-            await speak_async("Desculpa, pode repetir seu nome, por favor?")
+            await _safe_speak("Desculpa, pode repetir seu nome, por favor?")
 
-    await speak_async(f"Ok, vou seguir com {raw_name} por enquanto.")
-    return raw_name
+    await _safe_speak(f"Ok, vou seguir com {raw_name or 'usuário'} por enquanto.")
+    return raw_name or "usuario"
 
 async def ensure_username() -> str:
     from app.config import settings
@@ -71,38 +96,61 @@ async def ensure_username() -> str:
     username = sanitize_username(raw_name)
     save_username_to_env(username)
 
-    # if await username_collection_exists(username):
-    #     await speak_async(f"Encontrei um perfil existente para {raw_name}. Vou continuar com ele.")
-    # else:
-    #     await speak_async(f"Prazer, {raw_name}! Criando seu perfil agora.")
-
     return username
+
+async def _handle_one_command(wake_word_detector: WakeWordDetector) -> bool:
+    try:
+        await asyncio.to_thread(wake_word_detector.listen_for_wake_word)
+    except Exception:
+        log.exception("Falha ao escutar a wake word, tentando de novo")
+        await asyncio.sleep(1)
+        return True
+
+    user_text = _safe_listen(duration=5, use_command_context=True)
+
+    if not user_text:
+        await _safe_speak("Não consegui te ouvir. Diga 'hey jarvis' de novo quando quiser tentar.")
+        return True
+
+    if any(word in user_text.lower() for word in ["parar", "sair", "encerrar"]):
+        await _safe_speak("Até logo!")
+        return False
+
+    try:
+        result = await process_command(user_text)
+    except Exception:
+        log.exception("Falha ao processar o comando: %r", user_text)
+        result = "Desculpa, algo deu errado ao processar esse comando."
+
+    await _safe_speak(result)
+    return True
 
 async def command_loop(wake_word_detector: WakeWordDetector):
     while True:
-        await asyncio.to_thread(wake_word_detector.listen_for_wake_word)
-
-        user_text = listen(duration=5, use_command_context=True)
-
-        if not user_text:
-            await speak_async("Não consegui te ouvir. Diga 'hey jarvis' de novo quando quiser tentar.")
-            continue
-
-        if any(word in user_text.lower() for word in ["parar", "sair", "encerrar"]):
-            await speak_async("Até logo!")
+        should_continue = await _handle_one_command(wake_word_detector)
+        if not should_continue:
             break
 
-        try:
-            result = await process_command(user_text)
-        except Exception:
-            result = "Desculpa, algo deu errado ao processar esse comando."
-
-        await speak_async(result)
-
 async def main():
-    username = await ensure_username()
-    await speak_async(_random_greeting(username))
+    setup_logging()
+    setup_command_logger()
+    log.info("Nix iniciando...")
 
-    wake_word_detector = WakeWordDetector()
-    await command_loop(wake_word_detector)
-    
+    username = await ensure_username()
+    await _safe_speak(_random_greeting(username))
+
+    backoff = _MIN_SECONDS_BETWEEN_RESTARTS
+
+    while True:
+        try:
+            wake_word_detector = WakeWordDetector()
+            await command_loop(wake_word_detector)
+            log.info("Nix encerrado normalmente pelo usuário.")
+            break
+        except Exception:
+            log.exception(
+                "Loop principal quebrou de forma inesperada. Reiniciando em %ds...",
+                backoff,
+            )
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, _MAX_RESTART_BACKOFF)

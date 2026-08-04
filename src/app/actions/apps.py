@@ -129,14 +129,23 @@ def open_app(app_name: str) -> str:
 
     return f"Abrindo {app_name}."
 
+_CLOSE_APP_ALIASES = {
+    "bloco de notas": "notepad.exe",
+    "notepad": "notepad.exe",
+    "calculadora": "calculatorapp.exe",
+    "calc": "calculatorapp.exe",
+    "paint": "mspaint.exe",
+}
+
 def close_app(app_name: str) -> str:
     key = app_name.strip().lower()
+    target = _CLOSE_APP_ALIASES.get(key, key)
     closed_any = False
 
     try:
         for proc in psutil.process_iter(["pid", "name"]):
             proc_name = (proc.info["name"] or "").lower()
-            if key in proc_name:
+            if target in proc_name:
                 try:
                     proc.terminate()
                     closed_any = True

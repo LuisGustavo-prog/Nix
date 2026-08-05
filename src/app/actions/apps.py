@@ -17,6 +17,29 @@ KNOWN_APP_DIRS = {
 def _normalize(name: str) -> str:
     return name.strip().lower().replace(" ", "")
 
+def _name_candidates(raw_name: str, max_words_to_drop: int = 2) -> list[str]:
+    """
+    Gera variações do nome do app removendo, uma de cada vez, as primeiras
+    palavras da frase (ex: 'ou discord' -> 'discord'; 'de spotify' -> 'spotify').
+
+    Isso resolve genericamente qualquer erro de transcrição numa preposição
+    ou artigo solto antes do nome real do app, sem precisar manter uma lista
+    fixa de mishearings conhecidos ("o" -> "ou", etc). O candidato original
+    (sem remover nada) sempre vem primeiro, então nomes de app legítimos que
+    começam com essas palavras (raro, mas possível) continuam funcionando.
+    """
+    cleaned = raw_name.strip().rstrip(".,!?").strip()
+    words = cleaned.split()
+
+    candidates = []
+    max_drop = min(max_words_to_drop, max(len(words) - 1, 0))
+    for drop in range(max_drop + 1):
+        candidate = " ".join(words[drop:]).strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    return candidates or [cleaned]
+
 def _fuzzy_lookup(app_name: str, alias_map: dict[str, str], cutoff: float = 0.75) -> str | None:
     normalized_input = _normalize(app_name)
     normalized_map = {_normalize(key): value for key, value in alias_map.items()}
@@ -91,24 +114,25 @@ def _find_in_common_folders(exe_name: str) -> str | None:
     return None
 
 def resolve_app_path(app_name: str) -> str | None:
-    normalized = _normalize(app_name)
-    exe_name = normalized if normalized.endswith(".exe") else normalized + ".exe"
+    for candidate in _name_candidates(app_name):
+        normalized = _normalize(candidate)
+        exe_name = normalized if normalized.endswith(".exe") else normalized + ".exe"
 
-    path = _find_in_start_menu(app_name)
-    if path:
-        return path
+        path = _find_in_start_menu(candidate)
+        if path:
+            return path
 
-    path = _find_in_app_paths_registry(normalized)
-    if path:
-        return path
+        path = _find_in_app_paths_registry(normalized)
+        if path:
+            return path
 
-    path = _find_in_known_dirs(exe_name, normalized)
-    if path:
-        return path
+        path = _find_in_known_dirs(exe_name, normalized)
+        if path:
+            return path
 
-    path = _find_in_common_folders(normalized)
-    if path:
-        return path
+        path = _find_in_common_folders(normalized)
+        if path:
+            return path
 
     return None
 
@@ -127,10 +151,7 @@ _SETTINGS_URI_APPS = {
 }
 
 def open_app(app_name: str) -> str:
-    matched_uri = _fuzzy_lookup(app_name, _SETTINGS_URI_APPS)
-    if matched_uri:
-        os.startfile(matched_uri)
-        return f"Abrindo {app_name}."
+    candidates = _name_candidates(app_name)
 
     system_apps = {
         "bloco de notas": "notepad",
@@ -148,10 +169,16 @@ def open_app(app_name: str) -> str:
         "explorador de arquivos": "explorer",
     }
 
-    matched_command = _fuzzy_lookup(app_name, system_apps)
-    if matched_command:
-        subprocess.Popen(matched_command)
-        return f"Abrindo {app_name}."
+    for candidate in candidates:
+        matched_uri = _fuzzy_lookup(candidate, _SETTINGS_URI_APPS)
+        if matched_uri:
+            os.startfile(matched_uri)
+            return f"Abrindo {app_name}."
+
+        matched_command = _fuzzy_lookup(candidate, system_apps)
+        if matched_command:
+            subprocess.Popen(matched_command)
+            return f"Abrindo {app_name}."
 
     path = resolve_app_path(app_name)
     if path is None:
@@ -184,20 +211,43 @@ _CLOSE_APP_ALIASES = {
 }
 
 def close_app(app_name: str) -> str:
-    target = _fuzzy_lookup(app_name, _CLOSE_APP_ALIASES) or app_name.strip().lower()
-    closed_any = False
+    alias_target = _fuzzy_lookup(app_name, _CLOSE_APP_ALIASES)
+    candidates = ([alias_target] if alias_target else []) + _name_candidates(app_name.strip().lower())
 
     try:
-        for proc in psutil.process_iter(["pid", "name"]):
-            proc_name = (proc.info["name"] or "").lower()
-            if target in proc_name:
-                try:
-                    proc.terminate()
-                    closed_any = True
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
+        running = [
+            (proc, (proc.info["name"] or "").lower())
+            for proc in psutil.process_iter(["pid", "name"])
+        ]
     except Exception:
         return f"Ocorreu um problema ao tentar fechar {app_name}."
+
+    running_basenames = {
+        proc_name.removesuffix(".exe"): proc for proc, proc_name in running
+    }
+
+    matched_procs: list = []
+    for target in candidates:
+        if not target:
+            continue
+
+        substring_hits = [proc for proc, proc_name in running if target in proc_name]
+        if substring_hits:
+            matched_procs = substring_hits
+            break
+
+        fuzzy_hits = get_close_matches(target, running_basenames.keys(), n=3, cutoff=0.75)
+        if fuzzy_hits:
+            matched_procs = [running_basenames[name] for name in fuzzy_hits]
+            break
+
+    closed_any = False
+    for proc in matched_procs:
+        try:
+            proc.terminate()
+            closed_any = True
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
 
     if closed_any:
         return f"Fechando {app_name}."

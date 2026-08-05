@@ -1,7 +1,9 @@
 import re
 import json
+import time
 import asyncio
-from groq import AsyncGroq, BadRequestError
+from difflib import get_close_matches
+from groq import AsyncGroq, BadRequestError, RateLimitError
 from app.actions.browser import search_in_browser
 from app.config import settings
 from app.actions.apps import open_app, close_app
@@ -13,10 +15,43 @@ from app.actions.youtube import search_video_on_youtube
 from app.actions.composite import start_work_mode
 from app.core.logging_config import get_command_logger
 
-client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+client = AsyncGroq(
+    api_key=settings.GROQ_API_KEY,
+    max_retries=0,
+    timeout=8.0,
+)
 
 MODEL = "llama-3.3-70b-versatile"
 _CORRECTION_MODEL = "llama-3.1-8b-instant"
+
+_correction_cooldown_until = 0.0
+_tools_cooldown_until = 0.0
+_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
+
+_correction_tokens_remaining: int | None = None
+_tools_tokens_remaining: int | None = None
+_LOW_TOKEN_BUFFER = 300  # margem de segurança pra não gastar os últimos tokens da cota
+
+
+def _update_remaining_tokens(headers, kind: str) -> None:
+    global _correction_tokens_remaining, _tools_tokens_remaining
+
+    raw_value = headers.get("x-ratelimit-remaining-tokens")
+    if raw_value is None:
+        return
+    try:
+        remaining = int(raw_value)
+    except ValueError:
+        return
+
+    if kind == "correction":
+        _correction_tokens_remaining = remaining
+    else:
+        _tools_tokens_remaining = remaining
+
+
+class _ToolsInCooldown(Exception):
+    """Levantada quando o Tier 1 está em cooldown por rate limit recente."""
 
 cmd_log = get_command_logger()
 
@@ -290,8 +325,8 @@ _BROWSER_PATTERN = re.compile(
     r"(.+?)\s+no\s+(?:navegador|opera)\b",
     re.IGNORECASE,
 )
-_OPEN_APP_PATTERN = re.compile(r"\b(?:abre|abrir|abra)\s+(?:(?:o|a)\s+)?(.+)", re.IGNORECASE)
-_CLOSE_APP_PATTERN = re.compile(r"\b(?:fecha|fechar|feche)\s+(?:(?:o|a)\s+)?(.+)", re.IGNORECASE)
+_OPEN_APP_PATTERN = re.compile(r"\b(?:abre|abrir|abra)\s+(?:(?:o|a|ou)\s+)?(.+)", re.IGNORECASE)
+_CLOSE_APP_PATTERN = re.compile(r"\b(?:fecha|fechar|feche)\s+(?:(?:o|a|ou)\s+)?(.+)", re.IGNORECASE)
 
 _TRAILING_FILLER_WORDS = ("por favor", "pra mim", "para mim")
 
@@ -378,8 +413,16 @@ _CORRECTION_SYSTEM_PROMPT = (
 )
 
 async def _correct_transcription(user_text: str) -> str:
+    global _correction_cooldown_until
+
+    if time.monotonic() < _correction_cooldown_until:
+        return user_text
+
+    if _correction_tokens_remaining is not None and _correction_tokens_remaining < _LOW_TOKEN_BUFFER:
+        return user_text
+
     try:
-        response = await client.chat.completions.create(
+        raw_response = await client.chat.completions.with_raw_response.create(
             model=_CORRECTION_MODEL,
             messages=[
                 {"role": "system", "content": _CORRECTION_SYSTEM_PROMPT},
@@ -388,8 +431,13 @@ async def _correct_transcription(user_text: str) -> str:
             max_tokens=60,
             temperature=0,
         )
+        _update_remaining_tokens(raw_response.headers, "correction")
+        response = raw_response.parse()
         corrected = response.choices[0].message.content
         return corrected.strip() if corrected else user_text
+    except RateLimitError:
+        _correction_cooldown_until = time.monotonic() + _RATE_LIMIT_COOLDOWN_SECONDS
+        return user_text
     except Exception:
         return user_text
 
@@ -406,6 +454,33 @@ _CATEGORY_RULES = [
     (["navegador", "opera"], ["search_in_browser"]),
     (["modo de escrita", "ditado", "escreve", "escrever", "digita"], ["dictate_text"]),
 ]
+
+# Vocabulário de palavras-gatilho conhecidas, derivado das mesmas
+# categorias do Tier 1. Usado pra decidir se vale a pena chamar o Tier
+# 0.5 (correção via LLM) ou não: se a fala tiver uma palavra "quase"
+# igual a alguma dessas (mas não idêntica), é sinal de erro de
+# transcrição, vale corrigir. Se não tiver nada nem perto, o comando
+# provavelmente tá fora do escopo do Nix, e corrigir não vai ajudar.
+_ACTION_VERBS = [
+    "abre", "abrir", "abra", "fecha", "fechar", "feche",
+    "toca", "tocar", "coloca", "colocar",
+    "pesquisa", "pesquisar", "busca", "buscar",
+]
+_TRIGGER_VOCABULARY = sorted({
+    word
+    for keywords, _ in _CATEGORY_RULES
+    for phrase in keywords
+    for word in phrase.split()
+} | set(_ACTION_VERBS))
+
+def _needs_correction(user_text: str, cutoff: float = 0.75) -> bool:
+    words = re.findall(r"[a-zà-ÿ]+", user_text.lower())
+    for word in words:
+        if word in _TRIGGER_VOCABULARY:
+            continue
+        if get_close_matches(word, _TRIGGER_VOCABULARY, n=1, cutoff=cutoff):
+            return True
+    return False
 
 def _select_tools(user_text: str) -> list:
     text = user_text.lower()
@@ -427,13 +502,21 @@ _SYSTEM_PROMPT = (
 )
 
 async def _call_groq_with_tools(user_text: str):
+    global _tools_cooldown_until
+
+    if time.monotonic() < _tools_cooldown_until:
+        raise _ToolsInCooldown()
+
+    if _tools_tokens_remaining is not None and _tools_tokens_remaining < _LOW_TOKEN_BUFFER:
+        raise _ToolsInCooldown()
+
     max_attempts = 3
     last_error = None
     selected_tools = _select_tools(user_text)
 
     for attempt in range(max_attempts):
         try:
-            response = await client.chat.completions.create(
+            raw_response = await client.chat.completions.with_raw_response.create(
                 model=MODEL,
                 messages=[
                     {"role": "system", "content": _SYSTEM_PROMPT},
@@ -443,10 +526,14 @@ async def _call_groq_with_tools(user_text: str):
                 tool_choice="auto",
                 parallel_tool_calls=False,  
             )
-            return response
+            _update_remaining_tokens(raw_response.headers, "tools")
+            return raw_response.parse()
         except BadRequestError as e:
             last_error = e
             continue
+        except RateLimitError:
+            _tools_cooldown_until = time.monotonic() + _RATE_LIMIT_COOLDOWN_SECONDS
+            raise
 
     raise last_error
 
@@ -489,10 +576,12 @@ async def _execute_function(function_to_call, function_args: dict) -> str:
 
 async def process_command(user_text: str) -> str:
     quick_match = _match_simple_command(user_text)
+    was_corrected = False
 
-    if quick_match is None:
+    if quick_match is None and _needs_correction(user_text):
         corrected_text = await _correct_transcription(user_text)
         if corrected_text.strip().lower() != user_text.strip().lower():
+            was_corrected = True
             user_text = corrected_text
             quick_match = _match_simple_command(user_text)
 
@@ -501,11 +590,16 @@ async def process_command(user_text: str) -> str:
         function_to_call = _AVAILABLE_FUNCTIONS.get(function_name)
         if function_to_call:
             response_text = await _execute_function(function_to_call, function_args)
-            _log_command(user_text, "TIER_0_QUICK_MATCH", f"{function_name}({function_args})", response_text)
+            tier = "TIER_0_5_CORRECTED_MATCH" if was_corrected else "TIER_0_QUICK_MATCH"
+            _log_command(user_text, tier, f"{function_name}({function_args})", response_text)
             return response_text
 
     try:
         response = await _call_groq_with_tools(user_text)
+    except (RateLimitError, _ToolsInCooldown):
+        tier = "TIER_1_RATE_LIMIT+TIER_0_5" if was_corrected else "TIER_1_RATE_LIMIT"
+        _log_command(user_text, tier, "nenhuma", "Tá pegado agora, tenta de novo daqui a pouco.")
+        return "Tá pegado agora, tenta de novo daqui a pouco."
     except BadRequestError as e:
         fallback = _try_parse_broken_tool_call(str(e))
         if fallback:
@@ -513,10 +607,12 @@ async def process_command(user_text: str) -> str:
             function_to_call = _AVAILABLE_FUNCTIONS.get(function_name)
             if function_to_call:
                 response_text = await _execute_function(function_to_call, function_args)
-                _log_command(user_text, "TIER_1_FALLBACK_PARSE", f"{function_name}({function_args})", response_text)
+                tier = "TIER_1_FALLBACK_PARSE+TIER_0_5" if was_corrected else "TIER_1_FALLBACK_PARSE"
+                _log_command(user_text, tier, f"{function_name}({function_args})", response_text)
                 return response_text
 
-        _log_command(user_text, "TIER_1_FALLBACK_FAILED", "nenhuma", "Desculpa, não consegui processar esse comando. Pode repetir?")
+        tier = "TIER_1_FALLBACK_FAILED+TIER_0_5" if was_corrected else "TIER_1_FALLBACK_FAILED"
+        _log_command(user_text, tier, "nenhuma", "Desculpa, não consegui processar esse comando. Pode repetir?")
         return "Desculpa, não consegui processar esse comando. Pode repetir?"
 
     message = response.choices[0].message
@@ -532,15 +628,18 @@ async def process_command(user_text: str) -> str:
             if function_to_call is None:
                 error_msg = f"Não sei executar a ação {function_name}."
                 results.append(error_msg)
-                _log_command(user_text, "TIER_1_UNKNOWN_TOOL", function_name, error_msg)
+                tier = "TIER_1_UNKNOWN_TOOL+TIER_0_5" if was_corrected else "TIER_1_UNKNOWN_TOOL"
+                _log_command(user_text, tier, function_name, error_msg)
                 continue
 
             result = await _execute_function(function_to_call, function_args)
             results.append(result)
-            _log_command(user_text, "TIER_1_TOOL_CALL", f"{function_name}({function_args})", result)
+            tier = "TIER_1_TOOL_CALL+TIER_0_5" if was_corrected else "TIER_1_TOOL_CALL"
+            _log_command(user_text, tier, f"{function_name}({function_args})", result)
 
         return " ".join(results)
 
     final_response = message.content or "Não entendi o comando."
-    _log_command(user_text, "TIER_1_TEXT_ONLY", "nenhuma", final_response)
+    tier = "TIER_1_TEXT_ONLY+TIER_0_5" if was_corrected else "TIER_1_TEXT_ONLY"
+    _log_command(user_text, tier, "nenhuma", final_response)
     return final_response

@@ -5,10 +5,9 @@ import openwakeword.utils
 from openwakeword.model import Model
 
 WAKE_WORD_MODEL = "hey_jarvis"
-DETECTION_THRESHOLD = 0.5
+DETECTION_THRESHOLD = 0.6
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 1280  
-
 
 def _ensure_models_downloaded(model_name: str) -> None:
     models_dir = os.path.join(
@@ -51,3 +50,4 @@ class WakeWordDetector:
                     print(f"Wake word detectada! (score: {score:.2f})")
                     self.model.reset()
                     return
+                

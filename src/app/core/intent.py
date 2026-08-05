@@ -454,13 +454,6 @@ _CATEGORY_RULES = [
     (["navegador", "opera"], ["search_in_browser"]),
     (["modo de escrita", "ditado", "escreve", "escrever", "digita"], ["dictate_text"]),
 ]
-
-# Vocabulário de palavras-gatilho conhecidas, derivado das mesmas
-# categorias do Tier 1. Usado pra decidir se vale a pena chamar o Tier
-# 0.5 (correção via LLM) ou não: se a fala tiver uma palavra "quase"
-# igual a alguma dessas (mas não idêntica), é sinal de erro de
-# transcrição, vale corrigir. Se não tiver nada nem perto, o comando
-# provavelmente tá fora do escopo do Nix, e corrigir não vai ajudar.
 _ACTION_VERBS = [
     "abre", "abrir", "abra", "fecha", "fechar", "feche",
     "toca", "tocar", "coloca", "colocar",
@@ -574,7 +567,13 @@ async def _execute_function(function_to_call, function_args: dict) -> str:
     except Exception:
         return "Ocorreu um erro ao tentar executar esse comando."
 
+_CANCEL_PATTERN = re.compile(r"\bcancela(?:r)?\s+(?:o\s+)?comando\b", re.IGNORECASE)
+
 async def process_command(user_text: str) -> str:
+    if _CANCEL_PATTERN.search(user_text):
+        _log_command(user_text, "TIER_0_CANCELLED", "nenhuma", "Comando cancelado.")
+        return "Comando cancelado."
+
     quick_match = _match_simple_command(user_text)
     was_corrected = False
 

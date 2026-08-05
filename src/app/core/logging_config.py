@@ -79,3 +79,46 @@ def setup_command_logger(level: int = logging.INFO) -> logging.Logger:
 
 def get_command_logger() -> logging.Logger:
     return logging.getLogger("nix.comandos")
+
+
+CANCEL_LOG_FILE = LOG_DIR / "cancelamento.log"
+_cancel_configured = False
+
+
+def setup_cancel_check_logger(level: int = logging.INFO) -> logging.Logger:
+    """
+    Logger separado só pras métricas de tempo da checagem de cancelamento
+    (Tier 0.5 de streaming). Fica isolado num arquivo próprio
+    (cancelamento.log) e não propaga pro nix.log geral, pra não poluir os
+    logs normais com uma linha por checagem parcial.
+    """
+    global _cancel_configured
+
+    logger = logging.getLogger("nix.cancelamento")
+    logger.setLevel(level)
+    logger.propagate = False
+
+    if _cancel_configured:
+        return logger
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    formatter = logging.Formatter(
+        fmt="%(asctime)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    file_handler = RotatingFileHandler(
+        CANCEL_LOG_FILE, maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8"
+    )
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(level)
+
+    logger.addHandler(file_handler)
+
+    _cancel_configured = True
+    return logger
+
+
+def get_cancel_check_logger() -> logging.Logger:
+    return logging.getLogger("nix.cancelamento")

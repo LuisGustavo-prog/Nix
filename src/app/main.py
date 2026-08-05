@@ -4,10 +4,10 @@ import unicodedata
 import asyncio
 from pathlib import Path
 from app.core.tts import speak_async
-from app.core.stt import listen
+from app.core.stt import listen, listen_with_cancel_check
 from app.core.intent import process_command
 from app.core.wake_word import WakeWordDetector
-from app.core.logging_config import setup_logging, setup_command_logger, get_logger
+from app.core.logging_config import setup_logging, setup_command_logger, setup_cancel_check_logger, get_logger
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ENV_PATH = BASE_DIR / ".env"
@@ -62,6 +62,13 @@ def _safe_listen(duration: int = 3, use_command_context: bool = False) -> str:
         log.exception("Falha ao capturar/transcrever áudio")
         return ""
 
+def _safe_listen_with_cancel_check(duration: int = 5, use_command_context: bool = True) -> tuple[str, bool]:
+    try:
+        return listen_with_cancel_check(duration=duration, use_command_context=use_command_context)
+    except Exception:
+        log.exception("Falha ao capturar/transcrever áudio (com checagem de cancelamento)")
+        return "", False
+
 async def _capture_confirmed_name(max_attempts: int = 3) -> str:
     await _safe_speak("Oi! Ainda não te conheço. Qual é o seu nome?")
 
@@ -106,7 +113,11 @@ async def _handle_one_command(wake_word_detector: WakeWordDetector) -> bool:
         await asyncio.sleep(1)
         return True
 
-    user_text = _safe_listen(duration=5, use_command_context=True)
+    user_text, was_cancelled_early = _safe_listen_with_cancel_check(duration=5, use_command_context=True)
+
+    if was_cancelled_early:
+        await _safe_speak("Comando cancelado.")
+        return True
 
     if not user_text:
         await _safe_speak("Não consegui te ouvir. Diga 'hey jarvis' de novo quando quiser tentar.")
@@ -134,6 +145,7 @@ async def command_loop(wake_word_detector: WakeWordDetector):
 async def main():
     setup_logging()
     setup_command_logger()
+    setup_cancel_check_logger()
     log.info("Nix iniciando...")
 
     username = await ensure_username()

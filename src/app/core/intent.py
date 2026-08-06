@@ -2,6 +2,7 @@ import re
 import json
 import time
 import asyncio
+from datetime import datetime
 from difflib import get_close_matches
 from groq import AsyncGroq, BadRequestError, RateLimitError
 from app.actions.browser import search_in_browser
@@ -14,6 +15,7 @@ from app.actions.dictation import dictate_text
 from app.actions.youtube import search_video_on_youtube
 from app.actions.composite import start_work_mode
 from app.core.logging_config import get_command_logger
+from app.core.cancel_match import is_cancel_command
 
 client = AsyncGroq(
     api_key=settings.GROQ_API_KEY,
@@ -55,11 +57,27 @@ class _ToolsInCooldown(Exception):
 
 cmd_log = get_command_logger()
 
+_BLOCK_WIDTH = 64
+
 def _log_command(heard_text: str, tier: str, action_desc: str, response: str) -> None:
-    cmd_log.info(
-        "OUVIDO: '%s' | TIER: %s | AÇÃO: %s | RESPOSTA: '%s'",
-        heard_text, tier, action_desc, response,
+    """
+    Grava um "cartão" por comando em comandos.log, em vez de uma linha
+    corrida cheia de "|". Isso deixa muito mais fácil escanear visualmente
+    um arquivo que só cresce: cada comando fica isolado num bloco com
+    borda própria, com cada campo na sua linha.
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    header = f"┌─ {timestamp} ─ {tier} "
+    header = header + "─" * max(0, _BLOCK_WIDTH - len(header))
+
+    block = (
+        f"{header}\n"
+        f"│ ouvido   : {heard_text!r}\n"
+        f"│ ação     : {action_desc}\n"
+        f"│ resposta : {response!r}\n"
+        f"└{'─' * _BLOCK_WIDTH}"
     )
+    cmd_log.info(block)
 
 def control_media(action: str) -> str:
     dispatch = {
@@ -330,7 +348,6 @@ _CLOSE_APP_PATTERN = re.compile(r"\b(?:fecha|fechar|feche)\s+(?:(?:o|a|ou)\s+)?(
 
 _TRAILING_FILLER_WORDS = ("por favor", "pra mim", "para mim")
 
-
 def _strip_trailing_filler(value: str) -> str:
     cleaned = value.strip(" .,!?")
     for filler in _TRAILING_FILLER_WORDS:
@@ -432,7 +449,7 @@ async def _correct_transcription(user_text: str) -> str:
             temperature=0,
         )
         _update_remaining_tokens(raw_response.headers, "correction")
-        response = raw_response.parse()
+        response = await raw_response.parse()
         corrected = response.choices[0].message.content
         return corrected.strip() if corrected else user_text
     except RateLimitError:
@@ -455,12 +472,6 @@ _CATEGORY_RULES = [
     (["modo de escrita", "ditado", "escreve", "escrever", "digita"], ["dictate_text"]),
 ]
 
-# Vocabulário de palavras-gatilho conhecidas, derivado das mesmas
-# categorias do Tier 1. Usado pra decidir se vale a pena chamar o Tier
-# 0.5 (correção via LLM) ou não: se a fala tiver uma palavra "quase"
-# igual a alguma dessas (mas não idêntica), é sinal de erro de
-# transcrição, vale corrigir. Se não tiver nada nem perto, o comando
-# provavelmente tá fora do escopo do Nix, e corrigir não vai ajudar.
 _ACTION_VERBS = [
     "abre", "abrir", "abra", "fecha", "fechar", "feche",
     "toca", "tocar", "coloca", "colocar",
@@ -527,7 +538,7 @@ async def _call_groq_with_tools(user_text: str):
                 parallel_tool_calls=False,  
             )
             _update_remaining_tokens(raw_response.headers, "tools")
-            return raw_response.parse()
+            return await raw_response.parse()
         except BadRequestError as e:
             last_error = e
             continue
@@ -574,10 +585,8 @@ async def _execute_function(function_to_call, function_args: dict) -> str:
     except Exception:
         return "Ocorreu um erro ao tentar executar esse comando."
 
-_CANCEL_PATTERN = re.compile(r"\bcancela(?:r)?\s+(?:o\s+)?comandos?\b", re.IGNORECASE)
-
 async def process_command(user_text: str) -> str:
-    if _CANCEL_PATTERN.search(user_text):
+    if is_cancel_command(user_text):
         _log_command(user_text, "TIER_0_CANCELLED", "nenhuma", "Comando cancelado.")
         return "Comando cancelado."
 

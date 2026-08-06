@@ -6,6 +6,10 @@ from app.core.logging_config import get_logger, get_cancel_check_logger
 
 log = get_logger("audio")
 cancel_log = get_cancel_check_logger()
+_TAG_WIDTH = 11
+
+def _tag(label: str) -> str:
+    return f"[{label:<{_TAG_WIDTH}}]"
 
 SAMPLE_RATE = 16000
 
@@ -60,7 +64,6 @@ def record_audio_smart(
 
     return np.concatenate(audio_chunks, axis=0).flatten()
 
-
 def record_audio_with_cancel_check(
     on_partial_check,
     silence_duration_to_stop: float = 2.0,
@@ -69,24 +72,6 @@ def record_audio_with_cancel_check(
     check_interval_seconds: float = 0.8,
     pause_check_threshold: float = 0.4,
 ) -> tuple[np.ndarray | None, bool]:
-    """
-    Igual ao record_audio_smart, mas dispara `on_partial_check(audio_parcial)`
-    numa thread separada em dois gatilhos:
-
-    1. Periodicamente, a cada `check_interval_seconds` de fala contínua
-       (cobre frases longas).
-    2. Assim que detecta uma pausa curta (`pause_check_threshold`) logo
-       depois de você parar de falar (cobre frases curtas, tipo "cancelar
-       comando", que terminam antes do intervalo periódico completar).
-
-    Se `on_partial_check` retornar True, a gravação para assim que o loop
-    principal perceber, sem esperar o silêncio normal de
-    `silence_duration_to_stop`.
-
-    A checagem roda em background de propósito: mesmo um modelo pequeno
-    ainda leva um tempinho real de CPU, e se rodasse dentro do loop
-    principal, travaria a leitura do microfone enquanto processa.
-    """
     chunk_duration = 0.1
     chunk_samples = int(SAMPLE_RATE * chunk_duration)
 
@@ -115,8 +100,8 @@ def record_audio_with_cancel_check(
             log.exception("Falha ao checar cancelamento parcial, ignorando.")
         finally:
             cancel_log.info(
-                "Checagem #%d: disparada em %.2fs desde o início da fala, "
-                "resultado voltou %.2fs depois.",
+                "%s #%-3d disparada em %5.2fs desde a fala │ resultado em %5.2fs",
+                _tag("CHECK"),
                 check_number,
                 dispatched_at - (speech_started_at or function_start),
                 time.monotonic() - dispatched_at,
@@ -132,7 +117,7 @@ def record_audio_with_cancel_check(
 
             if cancel_detected.is_set():
                 elapsed = time.monotonic() - (speech_started_at or function_start)
-                cancel_log.info("Cancelamento detectado, %.2fs desde o início da fala.", elapsed)
+                cancel_log.info("%s detectado, %5.2fs desde o início da fala", _tag("CANCELADO"), elapsed)
                 return np.concatenate(audio_chunks, axis=0).flatten(), True
 
             rms = np.sqrt(np.mean(chunk**2))
@@ -185,7 +170,7 @@ def record_audio_with_cancel_check(
         return None, False
 
     cancel_log.info(
-        "Gravação encerrada sem cancelamento após %d checagens parciais, %.2fs desde o início da fala.",
-        checks_dispatched, time.monotonic() - (speech_started_at or function_start),
+        "%s %d checagens parciais │ %5.2fs desde o início da fala",
+        _tag("FINALIZADO"), checks_dispatched, time.monotonic() - (speech_started_at or function_start),
     )
     return np.concatenate(audio_chunks, axis=0).flatten(), False

@@ -7,7 +7,6 @@ _SETTINGS_URI = "ms-settings:nightlight"
 _WAIT_FOR_WINDOW = 1.5
 _BUTTON_TITLE_REGEX = r"(Ativar agora|Desativar agora)"
 
-
 def toggle_night_light() -> str:
     subprocess.run(f"start {_SETTINGS_URI}", shell=True)
     time.sleep(_WAIT_FOR_WINDOW)

@@ -18,16 +18,6 @@ def _normalize(name: str) -> str:
     return name.strip().lower().replace(" ", "")
 
 def _name_candidates(raw_name: str, max_words_to_drop: int = 2) -> list[str]:
-    """
-    Gera variações do nome do app removendo, uma de cada vez, as primeiras
-    palavras da frase (ex: 'ou discord' -> 'discord'; 'de spotify' -> 'spotify').
-
-    Isso resolve genericamente qualquer erro de transcrição numa preposição
-    ou artigo solto antes do nome real do app, sem precisar manter uma lista
-    fixa de mishearings conhecidos ("o" -> "ou", etc). O candidato original
-    (sem remover nada) sempre vem primeiro, então nomes de app legítimos que
-    começam com essas palavras (raro, mas possível) continuam funcionando.
-    """
     cleaned = raw_name.strip().rstrip(".,!?").strip()
     words = cleaned.split()
 

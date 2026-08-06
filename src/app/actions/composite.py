@@ -5,11 +5,11 @@ from app.actions.youtube import search_video_on_youtube
 WORK_MUSIC_QUERIES = [
     "Michael Jackson Bad",
     "Michael Jackson Billie Jean",
-    "https://music.youtube.com/watch?v=TTzD6gWV16s"
+    "https://music.youtube.com/watch?v=TTzD6gWV16s",
+    "Combichrist - Never Surrender [HQ] [Devil May Cry Soundtrack]"
 ]
 
 _WORK_APP_NAME = "visual studio code"
-
 
 def start_work_mode() -> str:
     music_query = random.choice(WORK_MUSIC_QUERIES)

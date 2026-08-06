@@ -14,6 +14,7 @@ from app.actions.media_control import play_pause, next_track, previous_track, st
 from app.actions.dictation import dictate_text
 from app.actions.youtube import search_video_on_youtube
 from app.actions.composite import start_work_mode
+from app.actions.logs import show_logs_dashboard
 from app.core.logging_config import get_command_logger
 from app.core.cancel_match import is_cancel_command
 from app.core.signals import RestartRequested, ShutdownRequested
@@ -111,7 +112,9 @@ _AVAILABLE_FUNCTIONS = {
     "dictate_text": dictate_text,
     "search_video_on_youtube": search_video_on_youtube,
     "start_work_mode": start_work_mode,
+    "show_logs_dashboard": show_logs_dashboard,
 }
+
 _TOOLS = [
     {
         "type": "function",
@@ -357,7 +360,7 @@ def _strip_trailing_filler(value: str) -> str:
     return cleaned
 
 _FIXED_RESTART_PHRASES = {"reiniciar nix", "iniciar nix", "re-iniciar mix", "reiniciar", "iniciar"}
-_FIXED_SHUTDOWN_PHRASE = "encerrar nix"
+_FIXED_SHUTDOWN_PHRASE = "encerrar"
 
 def _normalize_for_fixed_match(text: str) -> str:
     cleaned = _strip_trailing_filler(text).strip().lower()
@@ -410,6 +413,9 @@ def _match_simple_command(user_text: str):
 
     if any(phrase in text for phrase in ["bora trabalhar", "vamos trabalhar", "hora de trabalhar"]):
         return "start_work_mode", {}
+
+    if any(phrase in text for phrase in ["mostrar log", "mostrar logs", "exibir log", "exibir logs", "abrir log", "abrir logs", "painel de logs", "central de logs", "painel de informações"]):
+        return "show_logs_dashboard", {}
 
     if any(phrase in text for phrase in ["quero desenhar", "vou desenhar", "bora desenhar"]):
         return "open_app", {"app_name": "paint"}

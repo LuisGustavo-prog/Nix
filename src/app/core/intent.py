@@ -356,7 +356,7 @@ def _strip_trailing_filler(value: str) -> str:
             cleaned = cleaned[: -len(filler)].strip(" .,!?")
     return cleaned
 
-_FIXED_RESTART_PHRASES = {"reiniciar nix", "iniciar nix"}
+_FIXED_RESTART_PHRASES = {"reiniciar nix", "iniciar nix", "re-iniciar mix", "reiniciar", "iniciar"}
 _FIXED_SHUTDOWN_PHRASE = "encerrar nix"
 
 def _normalize_for_fixed_match(text: str) -> str:

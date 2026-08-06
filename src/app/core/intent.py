@@ -16,6 +16,7 @@ from app.actions.youtube import search_video_on_youtube
 from app.actions.composite import start_work_mode
 from app.core.logging_config import get_command_logger
 from app.core.cancel_match import is_cancel_command
+from app.core.signals import RestartRequested, ShutdownRequested
 
 client = AsyncGroq(
     api_key=settings.GROQ_API_KEY,
@@ -355,6 +356,22 @@ def _strip_trailing_filler(value: str) -> str:
             cleaned = cleaned[: -len(filler)].strip(" .,!?")
     return cleaned
 
+_FIXED_RESTART_PHRASES = {"reiniciar nix", "iniciar nix"}
+_FIXED_SHUTDOWN_PHRASE = "encerrar nix"
+
+def _normalize_for_fixed_match(text: str) -> str:
+    cleaned = _strip_trailing_filler(text).strip().lower()
+    cleaned = cleaned.replace("-", "").replace("_", "")
+    cleaned = re.sub(r"[.,!?]", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+def _is_restart_command(text: str) -> bool:
+    return _normalize_for_fixed_match(text) in _FIXED_RESTART_PHRASES
+
+def _is_shutdown_command(text: str) -> bool:
+    return _normalize_for_fixed_match(text) == _FIXED_SHUTDOWN_PHRASE
+
 def _match_simple_command(user_text: str):
     text = user_text.lower()
     has_digit = any(char.isdigit() for char in text)
@@ -535,7 +552,7 @@ async def _call_groq_with_tools(user_text: str):
                 ],
                 tools=selected_tools,
                 tool_choice="auto",
-                parallel_tool_calls=False,  
+                parallel_tool_calls=False,
             )
             _update_remaining_tokens(raw_response.headers, "tools")
             return await raw_response.parse()
@@ -589,6 +606,16 @@ async def process_command(user_text: str) -> str:
     if is_cancel_command(user_text):
         _log_command(user_text, "TIER_0_CANCELLED", "nenhuma", "Comando cancelado.")
         return "Comando cancelado."
+
+    if _is_shutdown_command(user_text):
+        response_text = "Até logo!"
+        _log_command(user_text, "TIER_0_SHUTDOWN", "shutdown_nix", response_text)
+        raise ShutdownRequested(response_text)
+
+    if _is_restart_command(user_text):
+        response_text = "Reiniciando, já volto."
+        _log_command(user_text, "TIER_0_RESTART", "restart_nix", response_text)
+        raise RestartRequested(response_text)
 
     quick_match = _match_simple_command(user_text)
     was_corrected = False

@@ -7,6 +7,7 @@ from app.core.tts import speak_async
 from app.core.stt import listen, listen_with_cancel_check
 from app.core.intent import process_command
 from app.core.wake_word import WakeWordDetector
+from app.core.signals import RestartRequested, ShutdownRequested
 from app.core.logging_config import setup_logging, setup_command_logger, setup_cancel_check_logger, get_logger
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -57,7 +58,6 @@ async def _safe_speak(text: str) -> None:
 def _safe_listen(duration: int = 3, use_command_context: bool = False) -> str:
     try:
         return listen(duration=duration, use_command_context=use_command_context)
-        # return listen(use_command_context=use_command_context)
     except Exception:
         log.exception("Falha ao capturar/transcrever áudio")
         return ""
@@ -123,24 +123,22 @@ async def _handle_one_command(wake_word_detector: WakeWordDetector) -> bool:
         await _safe_speak("Não consegui te ouvir. Diga 'hey jarvis' de novo quando quiser tentar.")
         return True
 
-    if any(word in user_text.lower() for word in ["parar", "sair", "encerrar"]):
-        await _safe_speak("Até logo!")
-        return False
-
     try:
         result = await process_command(user_text)
+    except (ShutdownRequested, RestartRequested) as signal:
+        await _safe_speak(str(signal))
+        raise
     except Exception:
         log.exception("Falha ao processar o comando: %r", user_text)
-        result = "Desculpa, algo deu errado ao processar esse comando."
+        await _safe_speak("Desculpa, algo deu errado ao processar esse comando.")
+        return True
 
     await _safe_speak(result)
     return True
 
 async def command_loop(wake_word_detector: WakeWordDetector):
     while True:
-        should_continue = await _handle_one_command(wake_word_detector)
-        if not should_continue:
-            break
+        await _handle_one_command(wake_word_detector)
 
 async def main():
     setup_logging()
@@ -159,6 +157,12 @@ async def main():
             await command_loop(wake_word_detector)
             log.info("Nix encerrado normalmente pelo usuário.")
             break
+        except ShutdownRequested:
+            log.info("Nix encerrado por comando de voz.")
+            break
+        except RestartRequested:
+            log.info("Reiniciando o Nix por comando de voz...")
+            raise
         except Exception:
             log.exception(
                 "Loop principal quebrou de forma inesperada. Reiniciando em %ds...",
@@ -166,4 +170,3 @@ async def main():
             )
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, _MAX_RESTART_BACKOFF)
-            

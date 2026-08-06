@@ -5,7 +5,6 @@ _CANCEL_WORD_VARIANTS = ("cancelar", "cancela")
 _COMMAND_WORD_VARIANTS = ("comando", "comandos")
 _CANCEL_CUTOFF = 0.72
 _COMMAND_CUTOFF = 0.75
-
 _EXACT_PATTERN = re.compile(r"\bcancela(?:r)?\s+(?:o\s+)?comandos?\b", re.IGNORECASE)
 
 def is_cancel_command(text: str) -> bool:

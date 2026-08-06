@@ -11,8 +11,6 @@ async def _generate_audio(text: str, output_path: Path) -> None:
     communicate = edge_tts.Communicate(text, VOICE)
     await communicate.save(str(output_path))
 
-import time
-
 def _play_audio(path: Path) -> None:
     pygame.mixer.init()
     pygame.mixer.music.load(str(path))

@@ -4,7 +4,6 @@ import winreg
 from pathlib import Path
 from difflib import get_close_matches
 import psutil
-import win32com.client
 
 START_MENU_DIRS = [
     Path.home() / "AppData/Roaming/Microsoft/Windows/Start Menu/Programs",

@@ -1,5 +1,3 @@
-import os
-import re
 import time
 import numpy as np
 import sounddevice as sd
@@ -31,23 +29,19 @@ _INITIAL_PROMPT = (
     "Rhapsody do Queen no YouTube, abrir aplicativos, pesquisar vídeos "
     "no YouTube, controlar volume, fechar programas."
 )
-_LOGICAL_CPUS = os.cpu_count() or 4
-_MAIN_MODEL_THREADS = max(2, min(4, _LOGICAL_CPUS // 2))
-_CANCEL_MODEL_THREADS = max(1, min(2, _LOGICAL_CPUS // 4))
 
 _model = WhisperModel(
     "large-v3-turbo",
     device="cpu",
     compute_type="int8",
-    cpu_threads=_MAIN_MODEL_THREADS
 )
 
 _cancel_model = WhisperModel(
     "tiny",
     device="cpu",
     compute_type="int8",
-    cpu_threads=_CANCEL_MODEL_THREADS,
 )
+
 _CANCEL_CHECK_PROMPT = "cancelar comando, cancela comando"
 
 def _warmup_cancel_model() -> None:

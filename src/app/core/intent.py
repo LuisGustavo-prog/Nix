@@ -15,7 +15,7 @@ from app.actions.dictation import dictate_text
 from app.actions.youtube import search_video_on_youtube
 from app.actions.composite import start_work_mode
 from app.actions.logs import show_logs_dashboard
-from app.core.logging_config import get_command_logger
+from app.core.logging_config import get_command_logger, get_logger
 from app.core.cancel_match import is_cancel_command
 from app.core.signals import RestartRequested, ShutdownRequested
 
@@ -34,7 +34,7 @@ _RATE_LIMIT_COOLDOWN_SECONDS = 60.0
 
 _correction_tokens_remaining: int | None = None
 _tools_tokens_remaining: int | None = None
-_LOW_TOKEN_BUFFER = 300  # margem de segurança pra não gastar os últimos tokens da cota
+_LOW_TOKEN_BUFFER = 300  
 
 
 def _update_remaining_tokens(headers, kind: str) -> None:
@@ -58,28 +58,29 @@ class _ToolsInCooldown(Exception):
     """Levantada quando o Tier 1 está em cooldown por rate limit recente."""
 
 cmd_log = get_command_logger()
+log = get_logger("intent")
 
 _BLOCK_WIDTH = 64
 
-def _log_command(heard_text: str, tier: str, action_desc: str, response: str) -> None:
-    """
-    Grava um "cartão" por comando em comandos.log, em vez de uma linha
-    corrida cheia de "|". Isso deixa muito mais fácil escanear visualmente
-    um arquivo que só cresce: cada comando fica isolado num bloco com
-    borda própria, com cada campo na sua linha.
-    """
+def _log_command(
+    heard_text: str,
+    tier: str,
+    action_desc: str,
+    response: str,
+    corrected_text: str | None = None,
+) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     header = f"┌─ {timestamp} ─ {tier} "
     header = header + "─" * max(0, _BLOCK_WIDTH - len(header))
 
-    block = (
-        f"{header}\n"
-        f"│ ouvido   : {heard_text!r}\n"
-        f"│ ação     : {action_desc}\n"
-        f"│ resposta : {response!r}\n"
-        f"└{'─' * _BLOCK_WIDTH}"
-    )
-    cmd_log.info(block)
+    lines = [header, f"│ ouvido   : {heard_text!r}"]
+    if corrected_text is not None and corrected_text.strip().lower() != heard_text.strip().lower():
+        lines.append(f"│ corrigido: {corrected_text!r}")
+    lines.append(f"│ ação     : {action_desc}")
+    lines.append(f"│ resposta : {response!r}")
+    lines.append(f"└{'─' * _BLOCK_WIDTH}")
+
+    cmd_log.info("\n".join(lines))
 
 def control_media(action: str) -> str:
     dispatch = {
@@ -405,6 +406,8 @@ def _match_simple_command(user_text: str):
         return "control_media", {"action": "next_track"}
     if re.search(r"\b(anterior|volt[ae]|voltar)\b", text):
         return "control_media", {"action": "previous_track"}
+    if re.search(r"\bvoc[eê]\s+a\s+m[uú]sica\b", text):
+        return "control_media", {"action": "previous_track"}
     if re.search(r"\b(para|pare|parar)\s+a\s+(m[uú]sica)\b", text):
         return "control_media", {"action": "stop"}
 
@@ -493,6 +496,12 @@ _CATEGORY_RULES = [
     (["youtube"], ["search_video_on_youtube", "control_media"]),
     (["navegador", "opera"], ["search_in_browser"]),
     (["modo de escrita", "ditado", "escreve", "escrever", "digita"], ["dictate_text"]),
+    (["bora trabalhar", "vamos trabalhar", "hora de trabalhar"], ["start_work_mode"]),
+    (
+        ["mostrar log", "mostrar logs", "exibir log", "exibir logs", "abrir log", "abrir logs", "painel de logs", "central de logs", "painel de informações"],
+        ["show_logs_dashboard"],
+    ),
+    (["desenhar", "desenho"], ["open_app"]),
 ]
 
 _ACTION_VERBS = [
@@ -604,8 +613,14 @@ async def _execute_function(function_to_call, function_args: dict) -> str:
             result = await result
         return result
     except TypeError:
+        log.exception(
+            "Parâmetros errados ao chamar %s com %r", function_to_call.__name__, function_args
+        )
         return "Recebi os parâmetros errados para executar esse comando. Pode repetir de um jeito diferente?"
     except Exception:
+        log.exception(
+            "Falha ao executar %s com %r", function_to_call.__name__, function_args
+        )
         return "Ocorreu um erro ao tentar executar esse comando."
 
 async def process_command(user_text: str) -> str:
@@ -625,6 +640,7 @@ async def process_command(user_text: str) -> str:
 
     quick_match = _match_simple_command(user_text)
     was_corrected = False
+    raw_text = user_text
 
     if quick_match is None and _needs_correction(user_text):
         corrected_text = await _correct_transcription(user_text)
@@ -639,14 +655,14 @@ async def process_command(user_text: str) -> str:
         if function_to_call:
             response_text = await _execute_function(function_to_call, function_args)
             tier = "TIER_0_5_CORRECTED_MATCH" if was_corrected else "TIER_0_QUICK_MATCH"
-            _log_command(user_text, tier, f"{function_name}({function_args})", response_text)
+            _log_command(raw_text, tier, f"{function_name}({function_args})", response_text, corrected_text=user_text)
             return response_text
 
     try:
         response = await _call_groq_with_tools(user_text)
     except (RateLimitError, _ToolsInCooldown):
         tier = "TIER_1_RATE_LIMIT+TIER_0_5" if was_corrected else "TIER_1_RATE_LIMIT"
-        _log_command(user_text, tier, "nenhuma", "Tá pegado agora, tenta de novo daqui a pouco.")
+        _log_command(raw_text, tier, "nenhuma", "Tá pegado agora, tenta de novo daqui a pouco.", corrected_text=user_text)
         return "Tá pegado agora, tenta de novo daqui a pouco."
     except BadRequestError as e:
         fallback = _try_parse_broken_tool_call(str(e))
@@ -656,11 +672,11 @@ async def process_command(user_text: str) -> str:
             if function_to_call:
                 response_text = await _execute_function(function_to_call, function_args)
                 tier = "TIER_1_FALLBACK_PARSE+TIER_0_5" if was_corrected else "TIER_1_FALLBACK_PARSE"
-                _log_command(user_text, tier, f"{function_name}({function_args})", response_text)
+                _log_command(raw_text, tier, f"{function_name}({function_args})", response_text, corrected_text=user_text)
                 return response_text
 
         tier = "TIER_1_FALLBACK_FAILED+TIER_0_5" if was_corrected else "TIER_1_FALLBACK_FAILED"
-        _log_command(user_text, tier, "nenhuma", "Desculpa, não consegui processar esse comando. Pode repetir?")
+        _log_command(raw_text, tier, "nenhuma", "Desculpa, não consegui processar esse comando. Pode repetir?", corrected_text=user_text)
         return "Desculpa, não consegui processar esse comando. Pode repetir?"
 
     message = response.choices[0].message
@@ -677,17 +693,17 @@ async def process_command(user_text: str) -> str:
                 error_msg = f"Não sei executar a ação {function_name}."
                 results.append(error_msg)
                 tier = "TIER_1_UNKNOWN_TOOL+TIER_0_5" if was_corrected else "TIER_1_UNKNOWN_TOOL"
-                _log_command(user_text, tier, function_name, error_msg)
+                _log_command(raw_text, tier, function_name, error_msg, corrected_text=user_text)
                 continue
 
             result = await _execute_function(function_to_call, function_args)
             results.append(result)
             tier = "TIER_1_TOOL_CALL+TIER_0_5" if was_corrected else "TIER_1_TOOL_CALL"
-            _log_command(user_text, tier, f"{function_name}({function_args})", result)
+            _log_command(raw_text, tier, f"{function_name}({function_args})", result, corrected_text=user_text)
 
         return " ".join(results)
 
     final_response = message.content or "Não entendi o comando."
     tier = "TIER_1_TEXT_ONLY+TIER_0_5" if was_corrected else "TIER_1_TEXT_ONLY"
-    _log_command(user_text, tier, "nenhuma", final_response)
+    _log_command(raw_text, tier, "nenhuma", final_response, corrected_text=user_text)
     return final_response

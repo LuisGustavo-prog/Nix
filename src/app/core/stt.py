@@ -1,4 +1,5 @@
 import time
+import unicodedata
 import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
@@ -23,11 +24,17 @@ _KNOWN_CORRECTIONS = {
     "ópera": "opera",
 }
 
+def _nfc(text: str) -> str:
+    return unicodedata.normalize("NFC", text)
+
+_KNOWN_CORRECTIONS_NORMALIZED = {_nfc(key): value for key, value in _KNOWN_CORRECTIONS.items()}
+
 _INITIAL_PROMPT = (
     "Comandos de voz para o assistente Nix, em português, com nomes de "
     "músicas e artistas que podem estar em inglês, ex: toca Bohemian "
     "Rhapsody do Queen no YouTube, abrir aplicativos, pesquisar vídeos "
-    "no YouTube, controlar volume, fechar programas."
+    "no YouTube, controlar volume, fechar programas, controlar a música: "
+    "pausa a música, volte a música, próxima música, continua a música."
 )
 
 _model = WhisperModel(
@@ -68,7 +75,7 @@ def _play_beep(duration: float = 0.2, frequency: int = 880) -> None:
 def _correct_known_mishearings(text: str) -> str:
     words = text.split()
     corrected = [
-        _KNOWN_CORRECTIONS.get(word.lower().strip(",.!?"), word)
+        _KNOWN_CORRECTIONS_NORMALIZED.get(_nfc(word.lower().strip(",.!?")), word)
         for word in words
     ]
     return " ".join(corrected)

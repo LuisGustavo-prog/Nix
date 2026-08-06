@@ -13,6 +13,8 @@ KNOWN_APP_DIRS = {
     "spotify": Path.home() / "AppData/Roaming/Spotify",
 }
 
+_RESOLVED_PATH_CACHE: dict[str, str | None] = {}
+
 def _normalize(name: str) -> str:
     return name.strip().lower().replace(" ", "")
 
@@ -103,27 +105,34 @@ def _find_in_common_folders(exe_name: str) -> str | None:
     return None
 
 def resolve_app_path(app_name: str) -> str | None:
+    cache_key = _normalize(app_name)
+    if cache_key in _RESOLVED_PATH_CACHE:
+        return _RESOLVED_PATH_CACHE[cache_key]
+
+    resolved_path = None
+
     for candidate in _name_candidates(app_name):
         normalized = _normalize(candidate)
         exe_name = normalized if normalized.endswith(".exe") else normalized + ".exe"
 
-        path = _find_in_start_menu(candidate)
-        if path:
-            return path
+        resolved_path = _find_in_start_menu(candidate)
+        if resolved_path:
+            break
 
-        path = _find_in_app_paths_registry(normalized)
-        if path:
-            return path
+        resolved_path = _find_in_app_paths_registry(normalized)
+        if resolved_path:
+            break
 
-        path = _find_in_known_dirs(exe_name, normalized)
-        if path:
-            return path
+        resolved_path = _find_in_known_dirs(exe_name, normalized)
+        if resolved_path:
+            break
 
-        path = _find_in_common_folders(normalized)
-        if path:
-            return path
+        resolved_path = _find_in_common_folders(normalized)
+        if resolved_path:
+            break
 
-    return None
+    _RESOLVED_PATH_CACHE[cache_key] = resolved_path
+    return resolved_path
 
 def _launch(path: str) -> None:
     if path.lower().endswith(".lnk"):

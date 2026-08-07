@@ -5,54 +5,84 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 
 app = FastAPI()
 
-# Caminho base apontando para a pasta 'logs'
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 LOGS_DIR = BASE_DIR / "logs"
 
-# Mapeamento com os nomes exatos dos seus arquivos de log
 LOG_FILES = {
     "app": LOGS_DIR / "nix.log",
     "commands": LOGS_DIR / "comandos.log",
     "cancel": LOGS_DIR / "cancelamento.log",
 }
 
+_LINE_SEP = "\u241E"
+_INITIAL_LINES = 200
 
-def read_last_lines(file_path: Path, max_lines: int = 100) -> str:
-    """Lê as últimas linhas de um arquivo de log."""
+def _escape_html(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _encode_lines(lines: list[str]) -> str:
+    return _LINE_SEP.join(_escape_html(line) for line in lines)
+
+
+def _read_last_lines(file_path: Path, max_lines: int = _INITIAL_LINES) -> list[str]:
     if not file_path.exists():
-        return f"Ficheiro de log '{file_path.name}' ainda não existe."
-
+        return []
     try:
-        lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
-        return "\n".join(lines[-max_lines:])
+        text = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
-        return f"Erro ao ler o arquivo de log: {e}"
-
+        return [f"[erro ao ler o log: {e}]"]
+    return [line for line in text.splitlines()][-max_lines:]
 
 @app.get("/stream/{log_type}")
 async def stream_log(log_type: str):
-    """Endpoint SSE para streaming de dados em tempo real."""
-
     async def event_generator():
         log_file = LOG_FILES.get(log_type)
         if not log_file:
-            yield "data: Tipo de log inválido\n\n"
+            yield "event: error\ndata: Tipo de log inválido\n\n"
             return
 
-        last_content = ""
+        while not log_file.exists():
+            yield "event: waiting\ndata: aguardando o arquivo de log ser criado...\n\n"
+            await asyncio.sleep(1)
+
+        initial_lines = _read_last_lines(log_file)
+        yield f"event: init\ndata: {_encode_lines(initial_lines)}\n\n"
+
+        try:
+            offset = log_file.stat().st_size
+        except FileNotFoundError:
+            offset = 0
+
         while True:
-            current_content = read_last_lines(log_file)
-            if current_content != last_content:
-                last_content = current_content
-                # Escapa tags HTML simples para evitar quebras e formata quebras de linha
-                formatted = (
-                    current_content.replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
-                    .replace("\n", "<br>")
-                )
-                yield f"data: {formatted}\n\n"
             await asyncio.sleep(0.5)
+
+            try:
+                current_size = log_file.stat().st_size
+            except FileNotFoundError:
+                continue
+
+            if current_size < offset:
+                offset = 0
+                yield "event: rotated\ndata: log rotacionado\n\n"
+                continue
+
+            if current_size == offset:
+                continue
+
+            try:
+                with log_file.open("r", encoding="utf-8", errors="ignore") as f:
+                    f.seek(offset)
+                    new_content = f.read()
+                    offset = f.tell()
+            except Exception:
+                continue
+
+            new_lines = [line for line in new_content.splitlines() if line.strip() != ""]
+            if not new_lines:
+                continue
+
+            yield f"event: append\ndata: {_encode_lines(new_lines)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -69,17 +99,19 @@ async def get_dashboard():
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-        
+
         <style>
             :root {
                 --bg-main: #090d16;
                 --bg-card: #0f172a;
                 --bg-terminal: #030712;
+                --bg-input: #0b1120;
                 --border-color: #1e293b;
                 --accent-purple: #8b5cf6;
                 --accent-green: #10b981;
                 --accent-blue: #3b82f6;
                 --accent-red: #f43f5e;
+                --accent-amber: #f59e0b;
                 --text-main: #f8fafc;
                 --text-muted: #64748b;
             }
@@ -98,7 +130,6 @@ async def get_dashboard():
                 min-height: 100vh;
             }
 
-            /* Header Principal */
             header {
                 display: flex;
                 justify-content: space-between;
@@ -166,7 +197,6 @@ async def get_dashboard():
                 100% { opacity: 1; transform: scale(1); }
             }
 
-            /* Layout Grid */
             .grid-container {
                 display: grid;
                 grid-template-columns: repeat(3, 1fr);
@@ -179,9 +209,9 @@ async def get_dashboard():
                     grid-template-columns: 1fr;
                     height: auto;
                 }
+                .terminal { height: 340px; }
             }
 
-            /* Card do Terminal */
             .card {
                 background: var(--bg-card);
                 border: 1px solid var(--border-color);
@@ -218,11 +248,22 @@ async def get_dashboard():
                 width: 10px;
                 height: 10px;
                 border-radius: 50%;
+                flex-shrink: 0;
             }
 
             .main-icon { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
             .cmd-icon { background: var(--accent-blue); box-shadow: 0 0 8px var(--accent-blue); }
             .cancel-icon { background: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); }
+
+            .status-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: var(--text-muted);
+                transition: background 0.2s ease;
+            }
+            .status-dot.status-live { background: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+            .status-dot.status-error { background: var(--accent-red); box-shadow: 0 0 6px var(--accent-red); animation: pulse 1.2s infinite; }
 
             .file-tag {
                 font-family: 'Fira Code', monospace;
@@ -234,11 +275,58 @@ async def get_dashboard():
                 border: 1px solid rgba(255, 255, 255, 0.05);
             }
 
-            /* Janela do Terminal */
+            .card-controls {
+                display: flex;
+                gap: 8px;
+                padding: 10px 16px;
+                border-bottom: 1px solid var(--border-color);
+                background: rgba(3, 7, 18, 0.4);
+            }
+
+            .card-controls input[type="text"] {
+                flex: 1;
+                min-width: 0;
+                background: var(--bg-input);
+                border: 1px solid var(--border-color);
+                border-radius: 6px;
+                color: var(--text-main);
+                font-family: 'Fira Code', monospace;
+                font-size: 12px;
+                padding: 6px 10px;
+            }
+
+            .card-controls input[type="text"]:focus {
+                outline: none;
+                border-color: var(--accent-purple);
+            }
+
+            .card-controls button {
+                background: var(--bg-input);
+                border: 1px solid var(--border-color);
+                border-radius: 6px;
+                color: var(--text-muted);
+                font-family: 'Inter', sans-serif;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 6px 10px;
+                cursor: pointer;
+                white-space: nowrap;
+            }
+
+            .card-controls button:hover {
+                border-color: rgba(255, 255, 255, 0.2);
+                color: var(--text-main);
+            }
+
+            .card-controls button.following {
+                color: var(--accent-green);
+                border-color: rgba(16, 185, 129, 0.3);
+            }
+
             .terminal {
                 flex: 1;
                 background-color: var(--bg-terminal);
-                padding: 16px;
+                padding: 12px 16px;
                 font-family: 'Fira Code', monospace;
                 font-size: 12.5px;
                 line-height: 1.6;
@@ -248,25 +336,50 @@ async def get_dashboard():
                 word-break: break-all;
             }
 
-            /* Custom Scrollbar */
-            .terminal::-webkit-scrollbar {
-                width: 6px;
+            .terminal::-webkit-scrollbar { width: 6px; }
+            .terminal::-webkit-scrollbar-track { background: var(--bg-terminal); }
+            .terminal::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+            .terminal::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+            .log-line { padding: 1px 0; }
+            .log-line.hidden-by-filter { display: none; }
+
+            .main-terminal .log-line { color: #a7f3d0; }
+            .commands-terminal .log-line { color: #bae6fd; }
+            .cancel-terminal .log-line { color: #fecdd3; }
+
+            .log-line.lvl-warn {
+                color: #fde68a;
+                border-left: 3px solid var(--accent-amber);
+                padding-left: 8px;
+                margin-left: -8px;
             }
-            .terminal::-webkit-scrollbar-track {
-                background: var(--bg-terminal);
+            .log-line.lvl-error {
+                color: #fecaca;
+                border-left: 3px solid var(--accent-red);
+                padding-left: 8px;
+                margin-left: -8px;
             }
-            .terminal::-webkit-scrollbar-thumb {
-                background: #1e293b;
-                border-radius: 3px;
+            .log-line.lvl-crit {
+                color: #fecaca;
+                background: rgba(244, 63, 94, 0.12);
+                border-left: 3px solid var(--accent-red);
+                padding-left: 8px;
+                margin-left: -8px;
+                font-weight: 600;
             }
-            .terminal::-webkit-scrollbar-thumb:hover {
-                background: #334155;
+            .log-line.lvl-debug { opacity: 0.55; }
+
+            .empty-hint {
+                color: var(--text-muted);
+                font-style: italic;
             }
 
-            /* Cores de status no texto dos logs */
-            .main-terminal { color: #a7f3d0; }
-            .commands-terminal { color: #bae6fd; }
-            .cancel-terminal { color: #fecdd3; }
+            .line-count {
+                font-size: 11px;
+                color: var(--text-muted);
+                padding: 6px 16px 0;
+            }
         </style>
     </head>
     <body>
@@ -291,10 +404,17 @@ async def get_dashboard():
                     <div class="card-title">
                         <div class="icon main-icon"></div>
                         <span>Main System Log</span>
+                        <div class="status-dot" id="main-status-dot"></div>
                     </div>
                     <span class="file-tag">nix.log</span>
                 </div>
-                <div id="main-log-box" class="terminal main-terminal">Aguardando dados...</div>
+                <div class="card-controls">
+                    <input type="text" id="main-search" placeholder="Filtrar...">
+                    <button id="main-follow-btn"></button>
+                    <button id="main-clear-btn">Limpar</button>
+                </div>
+                <div class="line-count" id="main-count">0 linhas</div>
+                <div id="main-log-box" class="terminal main-terminal"><span class="empty-hint">Aguardando dados...</span></div>
             </div>
 
             <div class="card">
@@ -302,10 +422,17 @@ async def get_dashboard():
                     <div class="card-title">
                         <div class="icon cmd-icon"></div>
                         <span>Commands Log</span>
+                        <div class="status-dot" id="commands-status-dot"></div>
                     </div>
                     <span class="file-tag">comandos.log</span>
                 </div>
-                <div id="commands-log-box" class="terminal commands-terminal">Aguardando dados...</div>
+                <div class="card-controls">
+                    <input type="text" id="commands-search" placeholder="Filtrar...">
+                    <button id="commands-follow-btn"></button>
+                    <button id="commands-clear-btn">Limpar</button>
+                </div>
+                <div class="line-count" id="commands-count">0 linhas</div>
+                <div id="commands-log-box" class="terminal commands-terminal"><span class="empty-hint">Aguardando dados...</span></div>
             </div>
 
             <div class="card">
@@ -313,32 +440,179 @@ async def get_dashboard():
                     <div class="card-title">
                         <div class="icon cancel-icon"></div>
                         <span>Cancel Check Log</span>
+                        <div class="status-dot" id="cancel-status-dot"></div>
                     </div>
                     <span class="file-tag">cancelamento.log</span>
                 </div>
-                <div id="cancel-log-box" class="terminal cancel-terminal">Aguardando dados...</div>
+                <div class="card-controls">
+                    <input type="text" id="cancel-search" placeholder="Filtrar...">
+                    <button id="cancel-follow-btn"></button>
+                    <button id="cancel-clear-btn">Limpar</button>
+                </div>
+                <div class="line-count" id="cancel-count">0 linhas</div>
+                <div id="cancel-log-box" class="terminal cancel-terminal"><span class="empty-hint">Aguardando dados...</span></div>
             </div>
         </div>
 
         <script>
-            function connectLogStream(logType, elementId) {
-                const box = document.getElementById(elementId);
-                const eventSource = new EventSource(`/stream/${logType}`);
+            const LINE_SEP = '\\u241E';
+            const MAX_LINES = 1500;
 
-                eventSource.onmessage = function(event) {
-                    box.innerHTML = event.data;
+            function levelClass(panelKind, rawText) {
+                if (panelKind === 'main') {
+                    if (rawText.includes('☠')) return 'lvl-crit';
+                    if (rawText.includes('✖')) return 'lvl-error';
+                    if (rawText.includes('▲')) return 'lvl-warn';
+                    if (rawText.includes('·')) return 'lvl-debug';
+                    return '';
+                }
+                if (panelKind === 'commands') {
+                    if (rawText.includes('FALLBACK_FAILED') || rawText.includes('RATE_LIMIT') || rawText.includes('UNKNOWN_TOOL')) {
+                        return 'lvl-warn';
+                    }
+                    return '';
+                }
+                if (panelKind === 'cancel') {
+                    if (rawText.includes('CANCELADO')) return 'lvl-warn';
+                    return '';
+                }
+                return '';
+            }
+
+            function createLogPanel(streamType, panelKind, ids) {
+                const box = document.getElementById(ids.box);
+                const statusDot = document.getElementById(ids.status);
+                const searchInput = document.getElementById(ids.search);
+                const followBtn = document.getElementById(ids.follow);
+                const clearBtn = document.getElementById(ids.clear);
+                const countEl = document.getElementById(ids.count);
+
+                let lines = [];
+                let following = true;
+                let hasContent = false;
+
+                function isNearBottom() {
+                    return box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+                }
+
+                function scrollToBottom() {
                     box.scrollTop = box.scrollHeight;
-                };
+                }
 
-                eventSource.onerror = function() {
-                    box.innerText = "Conexão perdida. Tentando reconectar...";
+                function updateFollowButton() {
+                    followBtn.textContent = following ? '⏸ Seguindo' : '▶ Pausado';
+                    followBtn.classList.toggle('following', following);
+                }
+
+                function applyFilter() {
+                    const term = searchInput.value.trim().toLowerCase();
+                    let visibleCount = 0;
+                    for (const item of lines) {
+                        const visible = term === '' || item.text.toLowerCase().includes(term);
+                        item.el.classList.toggle('hidden-by-filter', !visible);
+                        if (visible) visibleCount += 1;
+                    }
+                    countEl.textContent = term === ''
+                        ? `${lines.length} linhas`
+                        : `${visibleCount} de ${lines.length} linhas`;
+                }
+
+                function clearEmptyHint() {
+                    if (!hasContent) {
+                        box.innerHTML = '';
+                        hasContent = true;
+                    }
+                }
+
+                function addLines(rawLines) {
+                    if (rawLines.length === 0) return;
+                    clearEmptyHint();
+
+                    for (const raw of rawLines) {
+                        const div = document.createElement('div');
+                        const cls = levelClass(panelKind, raw);
+                        div.className = 'log-line' + (cls ? ' ' + cls : '');
+                        div.innerHTML = raw;
+                        box.appendChild(div);
+                        lines.push({ el: div, text: div.textContent });
+                    }
+
+                    while (lines.length > MAX_LINES) {
+                        const old = lines.shift();
+                        old.el.remove();
+                    }
+
+                    applyFilter();
+                    if (following) scrollToBottom();
+                }
+
+                function resetLines() {
+                    box.innerHTML = '<span class="empty-hint">Aguardando dados...</span>';
+                    hasContent = false;
+                    lines = [];
+                    countEl.textContent = '0 linhas';
+                }
+
+                box.addEventListener('scroll', () => {
+                    const nearBottom = isNearBottom();
+                    if (following !== nearBottom) {
+                        following = nearBottom;
+                        updateFollowButton();
+                    }
+                });
+
+                followBtn.addEventListener('click', () => {
+                    following = !following;
+                    updateFollowButton();
+                    if (following) scrollToBottom();
+                });
+
+                clearBtn.addEventListener('click', resetLines);
+                searchInput.addEventListener('input', applyFilter);
+
+                updateFollowButton();
+
+                const eventSource = new EventSource(`/stream/${streamType}`);
+
+                eventSource.addEventListener('init', (event) => {
+                    resetLines();
+                    const rawLines = event.data.split(LINE_SEP).filter(l => l.length > 0);
+                    addLines(rawLines);
+                    statusDot.classList.remove('status-error');
+                    statusDot.classList.add('status-live');
+                });
+
+                eventSource.addEventListener('append', (event) => {
+                    const rawLines = event.data.split(LINE_SEP).filter(l => l.length > 0);
+                    addLines(rawLines);
+                    statusDot.classList.remove('status-error');
+                    statusDot.classList.add('status-live');
+                });
+
+                eventSource.addEventListener('rotated', () => {
+                    resetLines();
+                });
+
+                eventSource.onerror = () => {
+                    // O navegador já reconecta sozinho, então só avisa
+                    // visualmente sem apagar o histórico que já foi lido.
+                    statusDot.classList.remove('status-live');
+                    statusDot.classList.add('status-error');
                 };
             }
 
-            // Inicia a escuta em tempo real para os três terminais
-            connectLogStream('app', 'main-log-box');
-            connectLogStream('commands', 'commands-log-box');
-            connectLogStream('cancel', 'cancel-log-box');
+            createLogPanel('app', 'main', {
+                box: 'main-log-box', status: 'main-status-dot', search: 'main-search',
+                follow: 'main-follow-btn', clear: 'main-clear-btn', count: 'main-count',
+            });
+            createLogPanel('commands', 'commands', {
+                box: 'commands-log-box', status: 'commands-status-dot', search: 'commands-search',
+                follow: 'commands-follow-btn', clear: 'commands-clear-btn', count: 'commands-count',
+            });
+            createLogPanel('cancel', 'cancel', {
+                box: 'cancel-log-box', status: 'cancel-status-dot', search: 'cancel-search',
+                follow: 'cancel-follow-btn', clear: 'cancel-clear-btn', count: 'cancel-count',
+            });
         </script>
     </body>
     </html>

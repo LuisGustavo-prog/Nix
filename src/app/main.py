@@ -1,17 +1,13 @@
-import re
 import random
-import unicodedata
 import asyncio
-from pathlib import Path
 from app.core.tts import speak_async
-from app.core.stt import listen, listen_with_cancel_check
+from app.core.stt import listen_with_cancel_check
 from app.core.intent import process_command
 from app.core.wake_word import WakeWordDetector
 from app.core.signals import RestartRequested, ShutdownRequested
 from app.core.logging_config import setup_logging, setup_command_logger, setup_cancel_check_logger, get_logger
+from app.web.username_server import capture_username_async
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-ENV_PATH = BASE_DIR / ".env"
 _GREETINGS = [
     "E aí, {username}! Bora nessa.",
     "Oi, {username}, tudo pronto por aqui.",
@@ -28,39 +24,11 @@ log = get_logger("main")
 def _random_greeting(username: str) -> str:
     return random.choice(_GREETINGS).format(username=username)
 
-def sanitize_username(raw: str) -> str:
-    normalized = unicodedata.normalize("NFKD", raw)
-    without_accents = "".join(c for c in normalized if not unicodedata.combining(c))
-    cleaned = re.sub(r"[^a-zA-Z0-9_]", "", without_accents.lower().replace(" ", "_"))
-    return cleaned
-
-def save_username_to_env(username: str) -> None:
-    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
-    new_line = f"NIX_USERNAME={username}"
-    for i, line in enumerate(lines):
-        if line.startswith("NIX_USERNAME="):
-            lines[i] = new_line
-            break
-    else:
-        lines.append(new_line)
-    ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-def _is_negative(text: str) -> bool:
-    text = text.lower()
-    return any(word in text for word in ["não", "nao", "errado", "incorreto"])
-
 async def _safe_speak(text: str) -> None:
     try:
         await speak_async(text)
     except Exception:
         log.exception("Falha ao gerar/tocar TTS para o texto: %r", text)
-
-def _safe_listen(duration: int = 3, use_command_context: bool = False) -> str:
-    try:
-        return listen(duration=duration, use_command_context=use_command_context)
-    except Exception:
-        log.exception("Falha ao capturar/transcrever áudio")
-        return ""
 
 def _safe_listen_with_cancel_check(duration: int = 5, use_command_context: bool = True) -> tuple[str, bool]:
     try:
@@ -69,28 +37,7 @@ def _safe_listen_with_cancel_check(duration: int = 5, use_command_context: bool 
         log.exception("Falha ao capturar/transcrever áudio (com checagem de cancelamento)")
         return "", False
 
-async def _capture_confirmed_name(max_attempts: int = 3) -> str:
-    await _safe_speak("Oi! Ainda não te conheço. Qual é o seu nome?")
-
-    raw_name = ""
-    for attempt in range(max_attempts):
-        raw_name = _safe_listen()
-
-        if not raw_name:
-            await _safe_speak("Não consegui te ouvir, pode repetir?")
-            continue
-
-        await _safe_speak(f"Entendi {raw_name}. Está correto?")
-        confirmation = _safe_listen()
-
-        if not _is_negative(confirmation):
-            return raw_name
-
-        if attempt < max_attempts - 1:
-            await _safe_speak("Desculpa, pode repetir seu nome, por favor?")
-
-    await _safe_speak(f"Ok, vou seguir com {raw_name or 'usuário'} por enquanto.")
-    return raw_name or "usuario"
+_USERNAME_CAPTURE_TIMEOUT_SECONDS = 5 * 60
 
 async def ensure_username() -> str:
     from app.config import settings
@@ -98,10 +45,20 @@ async def ensure_username() -> str:
     if settings.NIX_USERNAME:
         return settings.NIX_USERNAME
 
-    raw_name = await _capture_confirmed_name()
+    await _safe_speak(
+        "Oi! Ainda não te conheço. Abri uma página no navegador pra você "
+        "digitar seu nome, é só preencher lá."
+    )
 
-    username = sanitize_username(raw_name)
-    save_username_to_env(username)
+    raw_name, username = await capture_username_async(timeout=_USERNAME_CAPTURE_TIMEOUT_SECONDS)
+
+    if username == "usuario" and raw_name == "usuario":
+        await _safe_speak(
+            "Não recebi seu nome a tempo pela página. Vou seguir como "
+            "'usuário' por enquanto, reinicia quando quiser tentar de novo."
+        )
+    else:
+        await _safe_speak(f"Beleza, {raw_name}! Nome salvo.")
 
     return username
 
@@ -170,3 +127,4 @@ async def main():
             )
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, _MAX_RESTART_BACKOFF)
+            

@@ -1,6 +1,7 @@
 import re
 from difflib import get_close_matches
 from app.core.intent.tools import TOOL_SCHEMAS, TOOLS_BY_NAME
+
 _CATEGORY_RULES = [
     (["abre", "abrir", "fecha", "fechar"], ["open_app", "close_app"]),
     (["volume", "som", "mudo", "muta", "desmuta", "áudio", "audio"], ["set_volume", "adjust_volume", "mute"]),
@@ -33,7 +34,6 @@ _TRIGGER_VOCABULARY = sorted({
     for word in phrase.split()
 } | set(_ACTION_VERBS))
 
-
 def needs_correction(user_text: str, cutoff: float = 0.75) -> bool:
     words = re.findall(r"[a-zà-ÿ]+", user_text.lower())
     for word in words:
@@ -42,7 +42,6 @@ def needs_correction(user_text: str, cutoff: float = 0.75) -> bool:
         if get_close_matches(word, _TRIGGER_VOCABULARY, n=1, cutoff=cutoff):
             return True
     return False
-
 
 def select_tools(user_text: str) -> list:
     text = user_text.lower()

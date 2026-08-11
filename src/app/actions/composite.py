@@ -14,13 +14,11 @@ _WINDOW_WAIT_TIMEOUT_SECONDS = 15
 _WINDOW_POLL_INTERVAL_SECONDS = 0.5
 _WINDOW_ACTIVATE_SETTLE_SECONDS = 0.3
 
-
 def _get_vscode_window_handles() -> set[int]:
     return {
         win._hWnd for win in gw.getAllWindows()
         if _WORK_APP_NAME in win.title.lower() and win.title.strip() != ""
     }
-
 
 def wait_and_maximize_new_window(previous_handles: set[int], timeout: int = _WINDOW_WAIT_TIMEOUT_SECONDS) -> bool:
     start_time = time.time()
@@ -51,7 +49,6 @@ def wait_and_maximize_new_window(previous_handles: set[int], timeout: int = _WIN
 
     log.warning("Tempo limite excedido: a nova janela do VS Code demorou demais para abrir.")
     return False
-
 
 async def start_work_mode() -> str:
     music_query = random.choice(WORK_MUSIC_QUERIES)

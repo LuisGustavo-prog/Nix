@@ -23,9 +23,15 @@ async def _safe_speak(text: str) -> None:
     except Exception:
         log.exception("Falha ao gerar/tocar TTS para o texto: %r", text)
 
-def _safe_listen_with_cancel_check(duration: int = 5, use_command_context: bool = True) -> tuple[str, bool]:
+def _safe_listen_with_cancel_check(
+    duration: int = 5, use_command_context: bool = True, enable_finish_phrase: bool = False
+) -> tuple[str, bool]:
     try:
-        return listen_with_cancel_check(duration=duration, use_command_context=use_command_context)
+        return listen_with_cancel_check(
+            duration=duration,
+            use_command_context=use_command_context,
+            enable_finish_phrase=enable_finish_phrase,
+        )
     except Exception:
         log.exception("Falha ao capturar/transcrever áudio (com checagem de cancelamento)")
         return "", False
@@ -63,7 +69,9 @@ async def _handle_one_command(wake_word_detector: WakeWordDetector) -> bool:
         await asyncio.sleep(1)
         return True
 
-    user_text, was_cancelled_early = _safe_listen_with_cancel_check(duration=5, use_command_context=True)
+    user_text, was_cancelled_early = _safe_listen_with_cancel_check(
+        duration=5, use_command_context=True, enable_finish_phrase=True
+    )
 
     if was_cancelled_early:
         await _safe_speak("Comando cancelado.")

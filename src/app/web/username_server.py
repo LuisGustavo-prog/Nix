@@ -3,9 +3,11 @@ import re
 import threading
 import unicodedata
 from pathlib import Path
+
 import uvicorn
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
+
 from app.config import BASE_DIR
 from app.core.utils.browser_launch import open_url_with_fallback
 

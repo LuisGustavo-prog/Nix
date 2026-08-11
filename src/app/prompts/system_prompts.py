@@ -6,7 +6,7 @@ STT_INITIAL_PROMPT = (
     "pausa a música, volte a música, próxima música, continua a música."
 )
 
-STT_CANCEL_CHECK_PROMPT = "cancelar comando, cancela comando"
+STT_TRIGGER_CHECK_PROMPT = "cancelar comando, finalizar comando"
 
 CORRECTION_SYSTEM_PROMPT = (
     "Você corrige erros óbvios de transcrição de voz em português "

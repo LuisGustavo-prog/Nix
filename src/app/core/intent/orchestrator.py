@@ -96,7 +96,6 @@ _FAILED_GENERATION_PATTERN = re.compile(
 _FUNCTION_NAME_PATTERN = re.compile(r"<function=(?P<name>\w+)")
 _JSON_ARGS_PATTERN = re.compile(r"(?P<args>\{.*\})", re.DOTALL)
 
-
 def _try_parse_broken_tool_call(error_text: str):
     generation_match = _FAILED_GENERATION_PATTERN.search(error_text)
     if not generation_match:

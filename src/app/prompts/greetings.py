@@ -1,3 +1,5 @@
+"""Frases faladas pelo Nix em momentos específicos do fluxo."""
+
 STARTUP_GREETINGS = [
     "E aí, {username}! Bora nessa.",
     "Oi, {username}, tudo pronto por aqui.",

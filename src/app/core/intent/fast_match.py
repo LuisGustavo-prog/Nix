@@ -37,6 +37,9 @@ def is_restart_command(text: str) -> bool:
 def is_shutdown_command(text: str) -> bool:
     return _normalize_for_fixed_match(text) == _FIXED_SHUTDOWN_PHRASE
 
+_NIGHT_LIGHT_ACTIVATE_WORDS = ("ativa", "ativar", "liga", "ligar", "acende", "acender")
+_NIGHT_LIGHT_DEACTIVATE_WORDS = ("desativa", "desativar", "desliga", "desligar", "apaga", "apagar")
+
 def match_simple_command(user_text: str):
     text = user_text.lower()
     has_digit = any(char.isdigit() for char in text)
@@ -59,6 +62,10 @@ def match_simple_command(user_text: str):
                 return "adjust_volume", {"direction": "decrease"}
 
     if "luz noturna" in text or "night light" in text:
+        if any(word in text for word in _NIGHT_LIGHT_DEACTIVATE_WORDS):
+            return "toggle_night_light", {"should_activate": False}
+        if any(word in text for word in _NIGHT_LIGHT_ACTIVATE_WORDS):
+            return "toggle_night_light", {"should_activate": True}
         return "toggle_night_light", {}
 
     if re.search(r"\b(pausa\w*|pause|despausa\w*|despause|continu\w*|retom\w*)\b", text) or "dá play" in text or "da play" in text:

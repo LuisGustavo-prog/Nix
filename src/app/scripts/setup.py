@@ -1,6 +1,9 @@
 import sys
 from pathlib import Path
 
+# Script de bootstrap: roda ANTES do pacote "app" estar no sys.path, então
+# não pode importar app.core.paths aqui (import circular na prática). Por
+# isso o BASE_DIR é calculado manualmente, só neste arquivo.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 ENV_EXAMPLE_PATH = BASE_DIR / ".env.example"
 

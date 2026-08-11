@@ -10,7 +10,9 @@ _SETTINGS_URI = "ms-settings:nightlight"
 _WAIT_FOR_WINDOW = 1.5
 _BUTTON_TITLE_REGEX = r"(Ativar agora|Desativar agora)"
 
-def toggle_night_light() -> str:
+_BUTTON_TEXT_WHEN_LIGHT_IS_ON = "desativar"
+
+def toggle_night_light(should_activate: bool | None = None) -> str:
     subprocess.run(f"start {_SETTINGS_URI}", shell=True)
     time.sleep(_WAIT_FOR_WINDOW)
 
@@ -20,7 +22,21 @@ def toggle_night_light() -> str:
         toggle_button = window.child_window(
             title_re=_BUTTON_TITLE_REGEX, control_type="Button"
         )
-        toggle_button.click_input()
+
+        current_button_text = toggle_button.window_text().strip().lower()
+        light_is_currently_on = current_button_text.startswith(_BUTTON_TEXT_WHEN_LIGHT_IS_ON)
+
+        if should_activate is None:
+            toggle_button.click_input()
+            result_message = "Luz noturna alternada."
+        elif should_activate == light_is_currently_on:
+            result_message = (
+                "A luz noturna já estava ativada." if light_is_currently_on
+                else "A luz noturna já estava desativada."
+            )
+        else:
+            toggle_button.click_input()
+            result_message = "Luz noturna ativada." if should_activate else "Luz noturna desativada."
     except ElementNotFoundError:
         log.warning("Botão da luz noturna não encontrado na tela de configurações.")
         return "Não consegui encontrar o botão da luz noturna na tela de configurações."
@@ -34,4 +50,4 @@ def toggle_night_light() -> str:
     except Exception:
         log.debug("Não foi possível fechar a janela de configurações automaticamente.")
 
-    return "Luz noturna alternada."
+    return result_message

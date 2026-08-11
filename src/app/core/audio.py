@@ -64,14 +64,14 @@ def record_audio_smart(
 
     return np.concatenate(audio_chunks, axis=0).flatten()
 
-def record_audio_with_cancel_check(
+def record_audio_with_trigger_check(
     on_partial_check,
     silence_duration_to_stop: float = 2.0,
     max_wait_seconds: float = 8.0,
     max_speech_seconds: float = 20.0,
     check_interval_seconds: float = 0.8,
     pause_check_threshold: float = 0.4,
-) -> tuple[np.ndarray | None, bool]:
+) -> tuple[np.ndarray | None, str | None]:
     chunk_duration = 0.1
     chunk_samples = int(SAMPLE_RATE * chunk_duration)
 
@@ -85,19 +85,24 @@ def record_audio_with_cancel_check(
 
     silence_threshold = 0.003
 
+    _trigger_check_window_seconds = 4.0
+    trigger_check_window_chunks = int(_trigger_check_window_seconds / chunk_duration)
+
     function_start = time.monotonic()
     speech_started_at = None
 
-    cancel_detected = threading.Event()
+    trigger_event = threading.Event()
+    detected_trigger: list[str | None] = [None]
     check_running = threading.Event()
 
     def _run_check(audio_snapshot: np.ndarray, dispatched_at: float, check_number: int) -> None:
         try:
             result = on_partial_check(audio_snapshot)
             if result:
-                cancel_detected.set()
+                detected_trigger[0] = result
+                trigger_event.set()
         except Exception:
-            log.exception("Falha ao checar cancelamento parcial, ignorando.")
+            log.exception("Falha ao checar gatilho parcial, ignorando.")
         finally:
             cancel_log.info(
                 "%s #%-3d disparada em %5.2fs desde a fala │ resultado em %5.2fs",
@@ -108,17 +113,20 @@ def record_audio_with_cancel_check(
             )
             check_running.clear()
 
-    log.debug("Aguardando fala (com checagem de cancelamento)...")
+    log.debug("Aguardando fala (com checagem de gatilhos)...")
 
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32") as stream:
         while True:
             chunk, _ = stream.read(chunk_samples)
             audio_chunks.append(chunk)
 
-            if cancel_detected.is_set():
+            if trigger_event.is_set():
                 elapsed = time.monotonic() - (speech_started_at or function_start)
-                cancel_log.info("%s detectado, %5.2fs desde o início da fala", _tag("CANCELADO"), elapsed)
-                return np.concatenate(audio_chunks, axis=0).flatten(), True
+                cancel_log.info(
+                    "%s gatilho=%s, %5.2fs desde o início da fala",
+                    _tag("GATILHO"), detected_trigger[0], elapsed,
+                )
+                return np.concatenate(audio_chunks, axis=0).flatten(), detected_trigger[0]
 
             rms = np.sqrt(np.mean(chunk**2))
             total_timer += chunk_duration
@@ -147,30 +155,30 @@ def record_audio_with_cancel_check(
                 time_since_last_check = 0.0
                 check_running.set()
                 checks_dispatched += 1
-                snapshot = np.concatenate(audio_chunks, axis=0).flatten()
+                snapshot = np.concatenate(audio_chunks[-trigger_check_window_chunks:], axis=0).flatten()
                 threading.Thread(
                     target=_run_check,
                     args=(snapshot, time.monotonic(), checks_dispatched),
                     daemon=True,
                 ).start()
 
-            if has_started_speaking and silence_timer >= silence_duration_to_stop:
+            if has_started_speaking and silence_timer >= silence_duration_to_stop and not check_running.is_set():
                 log.debug("Fim de fala detectado.")
                 break
 
             if not has_started_speaking and total_timer >= max_wait_seconds:
                 log.info("Nenhuma fala detectada dentro de %ss.", max_wait_seconds)
-                return None, False
+                return None, None
 
             if has_started_speaking and total_timer >= max_speech_seconds:
                 log.debug("Tempo limite de fala atingido.")
                 break
 
     if not has_started_speaking or not audio_chunks:
-        return None, False
+        return None, None
 
     cancel_log.info(
         "%s %d checagens parciais │ %5.2fs desde o início da fala",
         _tag("FINALIZADO"), checks_dispatched, time.monotonic() - (speech_started_at or function_start),
     )
-    return np.concatenate(audio_chunks, axis=0).flatten(), False
+    return np.concatenate(audio_chunks, axis=0).flatten(), None

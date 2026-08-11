@@ -20,7 +20,6 @@ def control_media(action: str) -> str:
         return f"Ação de mídia desconhecida: {action}."
     return function()
 
-
 def adjust_volume(direction: str, step: int = 10) -> str:
     if direction == "increase":
         return increase_volume(step)
@@ -146,12 +145,21 @@ TOOL_SCHEMAS = [
         "function": {
             "name": "toggle_night_light",
             "description": (
-                "Liga ou desliga a luz noturna do Windows. Use para 'ativa/"
-                "desativa/liga/desliga a luz noturna', sem parâmetros."
+                "Liga ou desliga a luz noturna do Windows. Use "
+                "should_activate=true para 'ativa/liga a luz noturna', "
+                "should_activate=false para 'desativa/desliga a luz "
+                "noturna'. Omita o parâmetro só se o usuário disser algo "
+                "genérico tipo 'alterna a luz noturna', sem dizer se quer "
+                "ligar ou desligar."
             ),
             "parameters": {
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "should_activate": {
+                        "type": "boolean",
+                        "description": "True para ativar, false para desativar. Omitir para apenas alternar.",
+                    }
+                },
                 "required": [],
             },
         },

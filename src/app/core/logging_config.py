@@ -26,6 +26,7 @@ _LEVEL_COLORS = {
     "CRITICAL": "\033[1;41m",
 }
 _RESET = "\033[0m"
+
 class NixLogFormatter(logging.Formatter):
     def __init__(self, use_color: bool = False) -> None:
         super().__init__(datefmt="%Y-%m-%d %H:%M:%S")
@@ -51,11 +52,9 @@ class NixLogFormatter(logging.Formatter):
             return f"{color}{line}{_RESET}"
         return line
 
-
 _configured = False
 _commands_configured = False
 _cancel_configured = False
-
 
 def setup_logging(level: int = logging.INFO) -> logging.Logger:
     global _configured
@@ -83,7 +82,6 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
 
     _configured = True
     return logger
-
 
 def get_logger(module_name: str) -> logging.Logger:
     return logging.getLogger(f"nix.{module_name}")
@@ -114,10 +112,8 @@ def setup_command_logger(level: int = logging.INFO) -> logging.Logger:
     _commands_configured = True
     return logger
 
-
 def get_command_logger() -> logging.Logger:
     return logging.getLogger("nix.comandos")
-
 
 def setup_cancel_check_logger(level: int = logging.INFO) -> logging.Logger:
     global _cancel_configured
@@ -146,7 +142,6 @@ def setup_cancel_check_logger(level: int = logging.INFO) -> logging.Logger:
 
     _cancel_configured = True
     return logger
-
 
 def get_cancel_check_logger() -> logging.Logger:
     return logging.getLogger("nix.cancelamento")

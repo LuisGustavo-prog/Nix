@@ -4,7 +4,6 @@ from app.core.utils.browser_launch import open_url_in_opera
 
 _SEARCH_URL_TEMPLATE = "https://www.google.com/search?q={query}"
 
-
 def search_in_browser(query: str) -> str:
     search_url = _SEARCH_URL_TEMPLATE.format(query=quote_plus(query))
 

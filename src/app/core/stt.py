@@ -6,6 +6,8 @@ from faster_whisper import WhisperModel
 from app.core.audio import record_audio_smart, record_audio_with_cancel_check, SAMPLE_RATE
 from app.core.logging_config import get_logger, get_cancel_check_logger
 from app.core.cancel_match import is_cancel_command
+from app.prompts.content import STT_KNOWN_MISHEARINGS
+from app.prompts.system_prompts import STT_INITIAL_PROMPT, STT_CANCEL_CHECK_PROMPT
 
 log = get_logger("stt")
 cancel_log = get_cancel_check_logger()
@@ -15,27 +17,10 @@ _TAG_WIDTH = 11
 def _tag(label: str) -> str:
     return f"[{label:<{_TAG_WIDTH}}]"
 
-_KNOWN_CORRECTIONS = {
-    "niki": "nix",
-    "nike": "nix",
-    "nick": "nix",
-    "nikes": "nix",
-    "editado": "ditado",
-    "ópera": "opera",
-}
-
 def _nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
-_KNOWN_CORRECTIONS_NORMALIZED = {_nfc(key): value for key, value in _KNOWN_CORRECTIONS.items()}
-
-_INITIAL_PROMPT = (
-    "Comandos de voz para o assistente Nix, em português, com nomes de "
-    "músicas e artistas que podem estar em inglês, ex: toca Bohemian "
-    "Rhapsody do Queen no YouTube, abrir aplicativos, pesquisar vídeos "
-    "no YouTube, controlar volume, fechar programas, controlar a música: "
-    "pausa a música, volte a música, próxima música, continua a música."
-)
+_KNOWN_CORRECTIONS_NORMALIZED = {_nfc(key): value for key, value in STT_KNOWN_MISHEARINGS.items()}
 
 _model = WhisperModel(
     "large-v3-turbo",
@@ -49,15 +34,13 @@ _cancel_model = WhisperModel(
     compute_type="int8",
 )
 
-_CANCEL_CHECK_PROMPT = "cancelar comando, cancela comando"
-
 def _warmup_cancel_model() -> None:
     start = time.monotonic()
     try:
         rng = np.random.default_rng()
         dummy_audio = (rng.standard_normal(SAMPLE_RATE * 2) * 0.02).astype(np.float32)
         segments, _ = _cancel_model.transcribe(
-            dummy_audio, language="pt", initial_prompt=_CANCEL_CHECK_PROMPT, beam_size=1
+            dummy_audio, language="pt", initial_prompt=STT_CANCEL_CHECK_PROMPT, beam_size=1
         )
         list(segments)
         cancel_log.info("%s modelo tiny pronto em %.2fs", _tag("AQUECIMENTO"), time.monotonic() - start)
@@ -86,7 +69,7 @@ def _check_partial_for_cancel(audio_data: np.ndarray) -> bool:
         audio_data,
         language="pt",
         condition_on_previous_text=False,
-        initial_prompt=_CANCEL_CHECK_PROMPT,
+        initial_prompt=STT_CANCEL_CHECK_PROMPT,
         beam_size=1,
     )
     text = " ".join(segment.text for segment in segments).strip().lower()
@@ -117,7 +100,7 @@ def listen_with_cancel_check(
 
     transcribe_kwargs = {"language": "pt", "vad_filter": True}
     if use_command_context:
-        transcribe_kwargs["initial_prompt"] = _INITIAL_PROMPT
+        transcribe_kwargs["initial_prompt"] = STT_INITIAL_PROMPT
 
     transcribe_start = time.monotonic()
     segments, _ = _model.transcribe(
@@ -148,7 +131,7 @@ def listen(duration: float | None = None, use_command_context: bool = False) -> 
 
     transcribe_kwargs = {"language": "pt", "vad_filter": True}
     if use_command_context:
-        transcribe_kwargs["initial_prompt"] = _INITIAL_PROMPT
+        transcribe_kwargs["initial_prompt"] = STT_INITIAL_PROMPT
 
     segments, _ = _model.transcribe(
         audio_data,

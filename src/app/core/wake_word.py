@@ -50,4 +50,3 @@ class WakeWordDetector:
                     print(f"Wake word detectada! (score: {score:.2f})")
                     self.model.reset()
                     return
-                

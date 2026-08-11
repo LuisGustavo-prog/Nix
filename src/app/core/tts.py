@@ -39,4 +39,3 @@ async def speak_async(text: str) -> None:
 
 def speak(text: str) -> None:
     asyncio.run(speak_async(text))
-    

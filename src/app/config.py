@@ -1,9 +1,10 @@
 import os
-from pathlib import Path
 from dotenv import load_dotenv
+from app.core.paths import ENV_FILE, PROJECT_ROOT
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-load_dotenv(BASE_DIR / ".env")
+BASE_DIR = PROJECT_ROOT 
+
+load_dotenv(ENV_FILE)
 
 class ConfigError(Exception):
     pass
@@ -19,7 +20,6 @@ def _get_required(key: str) -> str:
 
 def _get_optional(key: str, default: str = "") -> str:
     return os.getenv(key, default)
-
 class Settings:
     GROQ_API_KEY: str = _get_required("GROQ_API_KEY")
     YOUTUBE_API_KEY: str = _get_optional("YOUTUBE_API_KEY")

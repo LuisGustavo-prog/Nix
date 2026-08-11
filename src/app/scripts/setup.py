@@ -6,7 +6,7 @@ ENV_EXAMPLE_PATH = BASE_DIR / ".env.example"
 
 sys.path.insert(0, str(BASE_DIR / "src"))
 
-from app.web.username_server import ( 
+from app.web.username_server import (
     capture_username_blocking,
     get_current_username,
 )

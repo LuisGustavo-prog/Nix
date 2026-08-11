@@ -6,15 +6,8 @@ from app.core.intent import process_command
 from app.core.wake_word import WakeWordDetector
 from app.core.signals import RestartRequested, ShutdownRequested
 from app.core.logging_config import setup_logging, setup_command_logger, setup_cancel_check_logger, get_logger
+from app.prompts.greetings import STARTUP_GREETINGS
 from app.web.username_server import capture_username_async
-
-_GREETINGS = [
-    "E aí, {username}! Bora nessa.",
-    "Oi, {username}, tudo pronto por aqui.",
-    "{username}, Nix online.",
-    "Fala, {username}! Pode chamar quando quiser.",
-    "Pronto, {username}. É só me chamar.",
-]
 
 _MIN_SECONDS_BETWEEN_RESTARTS = 5
 _MAX_RESTART_BACKOFF = 60
@@ -22,7 +15,7 @@ _MAX_RESTART_BACKOFF = 60
 log = get_logger("main")
 
 def _random_greeting(username: str) -> str:
-    return random.choice(_GREETINGS).format(username=username)
+    return random.choice(STARTUP_GREETINGS).format(username=username)
 
 async def _safe_speak(text: str) -> None:
     try:
@@ -127,4 +120,3 @@ async def main():
             )
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, _MAX_RESTART_BACKOFF)
-            

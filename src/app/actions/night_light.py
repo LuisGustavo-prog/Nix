@@ -2,6 +2,9 @@ import subprocess
 import time
 from pywinauto import Application
 from pywinauto.findwindows import ElementNotFoundError
+from app.core.logging_config import get_logger
+
+log = get_logger("night_light")
 
 _SETTINGS_URI = "ms-settings:nightlight"
 _WAIT_FOR_WINDOW = 1.5
@@ -19,14 +22,16 @@ def toggle_night_light() -> str:
         )
         toggle_button.click_input()
     except ElementNotFoundError:
+        log.warning("Botão da luz noturna não encontrado na tela de configurações.")
         return "Não consegui encontrar o botão da luz noturna na tela de configurações."
     except Exception:
+        log.exception("Erro ao tentar alternar a luz noturna")
         return "Ocorreu um erro ao tentar alternar a luz noturna."
 
     time.sleep(0.3)
     try:
         window.close()
     except Exception:
-        pass
+        log.debug("Não foi possível fechar a janela de configurações automaticamente.")
 
     return "Luz noturna alternada."

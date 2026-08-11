@@ -1,0 +1,72 @@
+:root {
+    --bg-main: #090d16;
+    --bg-card: #0f172a;
+    --border-color: #1e293b;
+    --accent-purple: #8b5cf6;
+    --accent-green: #10b981;
+    --accent-red: #f43f5e;
+    --text-main: #f8fafc;
+    --text-muted: #64748b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 32px;
+    max-width: 380px;
+    width: 100%;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    text-align: center;
+}
+.brand-logo {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px;
+    background: linear-gradient(135deg, var(--accent-purple), #6366f1);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
+}
+h1 { font-size: 19px; font-weight: 700; margin-bottom: 8px; }
+p.subtitle { font-size: 14px; color: var(--text-muted); margin-bottom: 24px; }
+input[type=text] {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-main);
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    margin-bottom: 16px;
+}
+input[type=text]:focus { outline: none; border-color: var(--accent-purple); }
+button {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--accent-purple);
+    border: none;
+    border-radius: 8px;
+    color: var(--text-main);
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+button:hover { opacity: 0.9; }
+.error { color: var(--accent-red); font-size: 13px; margin-bottom: 16px; }
+.success-icon { color: var(--accent-green); font-size: 40px; margin-bottom: 12px; }

@@ -4,34 +4,24 @@ import pyautogui
 import pyperclip
 from app.core.stt import listen_with_cancel_check
 from app.core.logging_config import get_logger
+from app.prompts.content import DICTATION_PUNCTUATION_MAP
 
 log = get_logger("dictation")
 
 _DEFAULT_DICTATION_DURATION = 10
 
 def _format_punctuation(text: str) -> str:
-    replacements = {
-        r"\bponto final\b": ".",
-        r"\bvírgula\b": ",",
-        r"\bponto e vírgula\b": ";",
-        r"\bdois pontos\b": ":",
-        r"\bponto de interrogação\b": "?",
-        r"\bponto de exclamação\b": "!",
-        r"\bnova linha\b": "\n",
-        r"\bparágrafo\b": "\n\n",
-    }
-    
-    for pattern, replacement in replacements.items():
+    for pattern, replacement in DICTATION_PUNCTUATION_MAP.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-    
+
     text = re.sub(r"\s+([.,;?!])", r"\1", text)
-    
+
     return text.strip()
 
 def dictate_text(duration: int = _DEFAULT_DICTATION_DURATION) -> str:
     dictated_text, was_cancelled = listen_with_cancel_check(
-        duration=duration, 
-        use_command_context=False  
+        duration=duration,
+        use_command_context=False,
     )
 
     if was_cancelled:

@@ -1,17 +1,10 @@
-import subprocess
 import requests
-import win32com.client
-from app.actions.apps import resolve_app_path
-from app.config import settings, ConfigError
+from app.config import ConfigError, settings
+from app.core.utils.browser_launch import open_url_in_opera
 
 _SEARCH_ENDPOINT = "https://www.googleapis.com/youtube/v3/search"
 _WATCH_URL_TEMPLATE = "https://music.youtube.com/watch?v={video_id}"
-_MUSIC_CATEGORY_ID = "10"  
-
-def _resolve_shortcut_target(lnk_path: str) -> str:
-    shell = win32com.client.Dispatch("WScript.Shell")
-    shortcut = shell.CreateShortCut(lnk_path)
-    return shortcut.Targetpath
+_MUSIC_CATEGORY_ID = "10"
 
 def _search_video_id(query: str) -> str | None:
     params = {
@@ -46,18 +39,9 @@ def search_video_on_youtube(query: str) -> str:
     if video_id is None:
         return f"Não encontrei nenhuma música para {query}."
 
-    opera_path = resolve_app_path("opera")
-    if opera_path is None:
-        return "Não consegui encontrar o Opera instalado."
-
-    if opera_path.lower().endswith(".lnk"):
-        opera_path = _resolve_shortcut_target(opera_path)
-
     video_url = _WATCH_URL_TEMPLATE.format(video_id=video_id)
 
-    try:
-        subprocess.Popen([opera_path, video_url])
-    except Exception:
+    if not open_url_in_opera(video_url):
         return f"Não consegui abrir o vídeo de {query}."
 
     return f"Abrindo o vídeo de {query} no YouTube."

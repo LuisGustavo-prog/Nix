@@ -12,4 +12,3 @@ class ShutdownRequested(Exception):
     É capturada dentro do loop principal (app/main.py) pra encerrar de
     forma limpa, sem acionar o supervisor de reinício.
     """
-    

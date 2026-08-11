@@ -9,17 +9,14 @@ _LOG_PORT = 8000
 _LOG_URL = f"http://localhost:{_LOG_PORT}"
 
 def _resolve_shortcut_target(lnk_path: str) -> str:
-    """Resolve o caminho real caso a aplicação seja um atalho (.lnk)."""
     shell = win32com.client.Dispatch("WScript.Shell")
     shortcut = shell.CreateShortCut(lnk_path)
     return shortcut.Targetpath
 
 def _start_server():
-    """Inicia o servidor Uvicorn/FastAPI em background."""
     uvicorn.run("app.web.log_server:app", host="127.0.0.1", port=_LOG_PORT, log_level="error")
 
 def show_logs_dashboard() -> str:
-    """Inicia o servidor de logs (se ainda não iniciado) e abre o dashboard no Opera."""
     global _SERVER_STARTED
 
     if not _SERVER_STARTED:
@@ -38,7 +35,6 @@ def show_logs_dashboard() -> str:
         except Exception:
             pass
 
-    # Fallback caso não encontre o Opera
     import webbrowser
     webbrowser.open(_LOG_URL)
     return "Abrindo o painel de logs no navegador."

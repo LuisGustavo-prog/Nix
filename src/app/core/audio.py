@@ -14,7 +14,7 @@ def _tag(label: str) -> str:
 SAMPLE_RATE = 16000
 
 def record_audio_smart(
-    silence_duration_to_stop: float = 2.0, 
+    silence_duration_to_stop: float = 1.0, 
     max_wait_seconds: float = 8.0,
     max_speech_seconds: float = 20.0,
 ) -> np.ndarray | None:
@@ -66,7 +66,7 @@ def record_audio_smart(
 
 def record_audio_with_trigger_check(
     on_partial_check,
-    silence_duration_to_stop: float = 2.0,
+    silence_duration_to_stop: float = 1.0,
     max_wait_seconds: float = 8.0,
     max_speech_seconds: float = 20.0,
     check_interval_seconds: float = 0.8,

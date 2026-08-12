@@ -2,10 +2,10 @@ import time
 import threading
 import numpy as np
 import sounddevice as sd
-from app.core.logging_config import get_logger, get_cancel_check_logger
+from app.core.logging_config import get_logger, get_escuta_logger
 
 log = get_logger("audio")
-cancel_log = get_cancel_check_logger()
+escuta_log = get_escuta_logger()
 _TAG_WIDTH = 11
 
 def _tag(label: str) -> str:
@@ -104,7 +104,7 @@ def record_audio_with_trigger_check(
         except Exception:
             log.exception("Falha ao checar gatilho parcial, ignorando.")
         finally:
-            cancel_log.info(
+            escuta_log.info(
                 "%s #%-3d disparada em %5.2fs desde a fala │ resultado em %5.2fs",
                 _tag("CHECK"),
                 check_number,
@@ -122,7 +122,7 @@ def record_audio_with_trigger_check(
 
             if trigger_event.is_set():
                 elapsed = time.monotonic() - (speech_started_at or function_start)
-                cancel_log.info(
+                escuta_log.info(
                     "%s gatilho=%s, %5.2fs desde o início da fala",
                     _tag("GATILHO"), detected_trigger[0], elapsed,
                 )
@@ -177,7 +177,7 @@ def record_audio_with_trigger_check(
     if not has_started_speaking or not audio_chunks:
         return None, None
 
-    cancel_log.info(
+    escuta_log.info(
         "%s %d checagens parciais │ %5.2fs desde o início da fala",
         _tag("FINALIZADO"), checks_dispatched, time.monotonic() - (speech_started_at or function_start),
     )

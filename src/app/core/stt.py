@@ -5,14 +5,14 @@ import numpy as np
 import sounddevice as sd
 from faster_whisper import WhisperModel
 from app.core.audio import record_audio_smart, record_audio_with_trigger_check, SAMPLE_RATE
-from app.core.logging_config import get_logger, get_cancel_check_logger
+from app.core.logging_config import get_logger, get_escuta_logger
 from app.core.cancel_match import is_cancel_command
 from app.core.finish_match import is_finish_command, strip_trailing_finish_phrase
 from app.prompts.content import STT_KNOWN_MISHEARINGS
 from app.prompts.system_prompts import STT_INITIAL_PROMPT, STT_TRIGGER_CHECK_PROMPT
 
 log = get_logger("stt")
-cancel_log = get_cancel_check_logger()
+escuta_log = get_escuta_logger()
 
 _TAG_WIDTH = 11
 
@@ -50,7 +50,7 @@ def _warmup_trigger_model() -> None:
             no_repeat_ngram_size=3, repetition_penalty=1.3,
         )
         list(segments)
-        cancel_log.info("%s modelo base pronto em %.2fs", _tag("AQUECIMENTO"), time.monotonic() - start)
+        escuta_log.info("%s modelo base pronto em %.2fs", _tag("AQUECIMENTO"), time.monotonic() - start)
     except Exception:
         log.exception("Falha ao aquecer o modelo de checagem de gatilhos (base)")
 
@@ -83,7 +83,7 @@ def _check_partial_for_trigger(audio_data: np.ndarray, allow_finish: bool) -> st
     )
     text = " ".join(segment.text for segment in segments).strip().lower()
     elapsed = time.monotonic() - start
-    cancel_log.info(
+    escuta_log.info(
         "%s %5.2fs processando %5.2fs de áudio │ texto: %r",
         _tag("PARCIAL"), elapsed, len(audio_data) / SAMPLE_RATE, text,
     )
@@ -124,12 +124,12 @@ def listen_with_cancel_check(
     record_elapsed = time.monotonic() - record_start
 
     if trigger == "cancel":
-        cancel_log.info("%s confirmado após %5.2fs de gravação", _tag("CANCELADO"), record_elapsed)
+        escuta_log.info("%s confirmado após %5.2fs de gravação", _tag("CANCELADO"), record_elapsed)
         return "", True
 
     if trigger == "finish":
         _play_confirmation_beep()
-        cancel_log.info("%s bipe de confirmação tocado", _tag("FINALIZAR"))
+        escuta_log.info("%s bipe de confirmação tocado", _tag("FINALIZAR"))
 
     if audio_data is None:
         log.debug("Nenhuma fala detectada, %.2fs desde o início da escuta.", record_elapsed)
@@ -154,7 +154,7 @@ def listen_with_cancel_check(
     if trigger == "finish":
         text = strip_trailing_finish_phrase(text)
 
-    cancel_log.info(
+    escuta_log.info(
         "%s %5.2fs gravação + %5.2fs transcrição final │ texto: %r (gatilho: %s)",
         _tag("TRANSCRITO"), record_elapsed, transcribe_elapsed, text, trigger or "timeout",
     )

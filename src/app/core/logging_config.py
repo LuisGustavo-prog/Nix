@@ -1,12 +1,11 @@
 import logging
 from logging.handlers import RotatingFileHandler
-
 from app.core.paths import LOGS_DIR
 
 LOG_DIR = LOGS_DIR
 LOG_FILE = LOG_DIR / "nix.log"
 COMMANDS_LOG_FILE = LOG_DIR / "comandos.log"
-CANCEL_LOG_FILE = LOG_DIR / "cancelamento.log"
+ESCUTA_LOG_FILE = LOG_DIR / "escuta.log"
 _MAX_BYTES = 5 * 1024 * 1024
 _BACKUP_COUNT = 5
 _NAME_WIDTH = 12
@@ -54,7 +53,7 @@ class NixLogFormatter(logging.Formatter):
 
 _configured = False
 _commands_configured = False
-_cancel_configured = False
+_escuta_configured = False
 
 def setup_logging(level: int = logging.INFO) -> logging.Logger:
     global _configured
@@ -115,14 +114,14 @@ def setup_command_logger(level: int = logging.INFO) -> logging.Logger:
 def get_command_logger() -> logging.Logger:
     return logging.getLogger("nix.comandos")
 
-def setup_cancel_check_logger(level: int = logging.INFO) -> logging.Logger:
-    global _cancel_configured
+def setup_escuta_logger(level: int = logging.INFO) -> logging.Logger:
+    global _escuta_configured
 
-    logger = logging.getLogger("nix.cancelamento")
+    logger = logging.getLogger("nix.escuta")
     logger.setLevel(level)
     logger.propagate = False
 
-    if _cancel_configured:
+    if _escuta_configured:
         return logger
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -133,15 +132,15 @@ def setup_cancel_check_logger(level: int = logging.INFO) -> logging.Logger:
     )
 
     file_handler = RotatingFileHandler(
-        CANCEL_LOG_FILE, maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8"
+        ESCUTA_LOG_FILE, maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8"
     )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(level)
 
     logger.addHandler(file_handler)
 
-    _cancel_configured = True
+    _escuta_configured = True
     return logger
 
-def get_cancel_check_logger() -> logging.Logger:
-    return logging.getLogger("nix.cancelamento")
+def get_escuta_logger() -> logging.Logger:
+    return logging.getLogger("nix.escuta")

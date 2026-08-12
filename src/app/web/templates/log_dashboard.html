@@ -161,7 +161,7 @@
 
         .main-icon { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
         .cmd-icon { background: var(--accent-blue); box-shadow: 0 0 8px var(--accent-blue); }
-        .cancel-icon { background: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); }
+        .escuta-icon { background: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); }
 
         .status-dot {
             width: 8px;
@@ -254,7 +254,7 @@
 
         .main-terminal .log-line { color: #a7f3d0; }
         .commands-terminal .log-line { color: #bae6fd; }
-        .cancel-terminal .log-line { color: #fecdd3; }
+        .escuta-terminal .log-line { color: #fecdd3; }
 
         .log-line.lvl-warn {
             color: #fde68a;
@@ -346,19 +346,19 @@
         <div class="card">
             <div class="card-header">
                 <div class="card-title">
-                    <div class="icon cancel-icon"></div>
-                    <span>Cancel Check Log</span>
-                    <div class="status-dot" id="cancel-status-dot"></div>
+                    <div class="icon escuta-icon"></div>
+                    <span>Log de Escuta</span>
+                    <div class="status-dot" id="escuta-status-dot"></div>
                 </div>
-                <span class="file-tag">cancelamento.log</span>
+                <span class="file-tag">escuta.log</span>
             </div>
             <div class="card-controls">
-                <input type="text" id="cancel-search" placeholder="Filtrar...">
-                <button id="cancel-follow-btn"></button>
-                <button id="cancel-clear-btn">Limpar</button>
+                <input type="text" id="escuta-search" placeholder="Filtrar...">
+                <button id="escuta-follow-btn"></button>
+                <button id="escuta-clear-btn">Limpar</button>
             </div>
-            <div class="line-count" id="cancel-count">0 linhas</div>
-            <div id="cancel-log-box" class="terminal cancel-terminal"><span class="empty-hint">Aguardando dados...</span></div>
+            <div class="line-count" id="escuta-count">0 linhas</div>
+            <div id="escuta-log-box" class="terminal escuta-terminal"><span class="empty-hint">Aguardando dados...</span></div>
         </div>
     </div>
 
@@ -380,7 +380,7 @@
                 }
                 return '';
             }
-            if (panelKind === 'cancel') {
+            if (panelKind === 'escuta') {
                 if (rawText.includes('CANCELADO')) return 'lvl-warn';
                 return '';
             }
@@ -502,8 +502,6 @@
             });
 
             eventSource.onerror = () => {
-                // O navegador já reconecta sozinho, então só avisa
-                // visualmente sem apagar o histórico que já foi lido.
                 statusDot.classList.remove('status-live');
                 statusDot.classList.add('status-error');
             };
@@ -517,9 +515,9 @@
             box: 'commands-log-box', status: 'commands-status-dot', search: 'commands-search',
             follow: 'commands-follow-btn', clear: 'commands-clear-btn', count: 'commands-count',
         });
-        createLogPanel('cancel', 'cancel', {
-            box: 'cancel-log-box', status: 'cancel-status-dot', search: 'cancel-search',
-            follow: 'cancel-follow-btn', clear: 'cancel-clear-btn', count: 'cancel-count',
+        createLogPanel('escuta', 'escuta', {
+            box: 'escuta-log-box', status: 'escuta-status-dot', search: 'escuta-search',
+            follow: 'escuta-follow-btn', clear: 'escuta-clear-btn', count: 'escuta-count',
         });
     </script>
 </body>

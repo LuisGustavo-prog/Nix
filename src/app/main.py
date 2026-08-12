@@ -5,7 +5,7 @@ from app.core.stt import listen_with_cancel_check
 from app.core.intent import process_command
 from app.core.wake_word import WakeWordDetector
 from app.core.signals import RestartRequested, ShutdownRequested
-from app.core.logging_config import setup_logging, setup_command_logger, setup_cancel_check_logger, get_logger
+from app.core.logging_config import setup_logging, setup_command_logger, setup_escuta_logger, get_logger
 from app.prompts.greetings import STARTUP_GREETINGS
 from app.web.username_server import capture_username_async
 
@@ -101,7 +101,7 @@ async def command_loop(wake_word_detector: WakeWordDetector):
 async def main():
     setup_logging()
     setup_command_logger()
-    setup_cancel_check_logger()
+    setup_escuta_logger()
     log.info("Nix iniciando...")
 
     username = await ensure_username()
@@ -128,3 +128,4 @@ async def main():
             )
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, _MAX_RESTART_BACKOFF)
+            

@@ -13,20 +13,17 @@ TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 LOG_FILES = {
     "app": LOGS_DIR / "nix.log",
     "commands": LOGS_DIR / "comandos.log",
-    "cancel": LOGS_DIR / "cancelamento.log",
+    "escuta": LOGS_DIR / "escuta.log",
 }
 
 _LINE_SEP = "\u241E"
 _INITIAL_LINES = 200
 
-
 def _escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-
 def _encode_lines(lines: list[str]) -> str:
     return _LINE_SEP.join(_escape_html(line) for line in lines)
-
 
 def _read_last_lines(file_path: Path, max_lines: int = _INITIAL_LINES) -> list[str]:
     if not file_path.exists():
@@ -36,7 +33,6 @@ def _read_last_lines(file_path: Path, max_lines: int = _INITIAL_LINES) -> list[s
     except Exception as e:
         return [f"[erro ao ler o log: {e}]"]
     return [line for line in text.splitlines()][-max_lines:]
-
 
 @app.get("/stream/{log_type}")
 async def stream_log(log_type: str):
@@ -89,7 +85,6 @@ async def stream_log(log_type: str):
             yield f"event: append\ndata: {_encode_lines(new_lines)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-
 
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():

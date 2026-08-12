@@ -1,3 +1,4 @@
+import os
 import time
 import unicodedata
 import numpy as np
@@ -23,16 +24,20 @@ def _nfc(text: str) -> str:
 
 _KNOWN_CORRECTIONS_NORMALIZED = {_nfc(key): value for key, value in STT_KNOWN_MISHEARINGS.items()}
 
+_CPU_THREADS = max(1, (os.cpu_count() or 4) - 1)
+
 _model = WhisperModel(
     "large-v3-turbo",
     device="cpu",
     compute_type="int8",
+    cpu_threads=_CPU_THREADS,
 )
 
 _trigger_model = WhisperModel(
     "base",
     device="cpu",
     compute_type="int8",
+    cpu_threads=_CPU_THREADS,
 )
 
 def _warmup_trigger_model() -> None:

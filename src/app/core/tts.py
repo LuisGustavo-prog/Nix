@@ -5,6 +5,10 @@ from pathlib import Path
 import edge_tts
 import pygame
 
+from app.core.logging_config import get_logger
+
+log = get_logger("tts")
+
 VOICE = "pt-BR-FranciscaNeural"
 
 async def _generate_audio(text: str, output_path: Path) -> None:
@@ -32,10 +36,20 @@ async def speak_async(text: str) -> None:
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
         tmp_path = Path(tmp.name)
 
-    await _generate_audio(text, tmp_path)
-    _play_audio(tmp_path)
+    try:
+        await _generate_audio(text, tmp_path)
+    except Exception:
+        log.exception("Falha ao gerar áudio (TTS), pulando essa fala: %r", text)
+        tmp_path.unlink(missing_ok=True)
+        return
 
-    tmp_path.unlink(missing_ok=True)
+    try:
+        _play_audio(tmp_path)
+    except Exception:
+        log.exception("Falha ao reproduzir áudio (TTS)")
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 def speak(text: str) -> None:
     asyncio.run(speak_async(text))
+    
